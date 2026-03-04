@@ -3,15 +3,17 @@ FROM node:20 AS builder
 WORKDIR /app
 COPY . .
 
-# Build Client
+# Build Client - Ensure devDependencies are installed for build
 WORKDIR /app/client
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
-RUN npm install && npx vite build
+# Force development mode during install to get Vite
+RUN npm install --include=dev
+RUN npx vite build
 
 # Build Server
 WORKDIR /app/server
-RUN npm install
+RUN npm install --production=false
 
 # Stage 2: Runtime
 FROM node:20-slim
