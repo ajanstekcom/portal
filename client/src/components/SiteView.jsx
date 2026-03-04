@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { ChevronLeft, ChevronRight, RotateCw, Monitor, Shield, X, Maximize2, MousePointer2, Keyboard } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RotateCw, Monitor, Shield, X, Maximize2, MousePointer2, Keyboard, ExternalLink, Lock } from 'lucide-react';
 import api from '../api';
 
 const socket = io(window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin);
@@ -78,54 +78,51 @@ const SiteView = ({ siteId, user, onExit }) => {
     return (
         <div className="h-screen bg-slate-950 flex flex-col text-white overflow-hidden font-sans">
             {/* Browser Header Overlay */}
-            <div className="bg-slate-900 border-b border-slate-800 p-2 flex items-center gap-4 shadow-2xl z-10">
-                <div className="flex gap-1 ml-2">
-                    <button onClick={onExit} className="p-2 hover:bg-slate-800 rounded-lg text-slate-500 hover:text-white transition-all"><X size={18} /></button>
+            <div className="bg-slate-900 border-b border-slate-800 p-3 flex items-center gap-4 shadow-2xl z-10">
+                <div className="flex gap-2">
+                    <button onClick={onExit} className="p-2 hover:bg-slate-800 rounded-lg text-slate-500 hover:text-white transition-all bg-slate-950/50 border border-slate-800">
+                        <X size={18} />
+                    </button>
                 </div>
 
-                <div className="flex gap-2 items-center bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 flex-grow mx-4">
-                    <Shield size={14} className="text-primary-500" />
-                    <span className="text-xs font-bold text-slate-400 truncate max-w-sm">{site.url}</span>
+                <div className="flex gap-3 items-center bg-slate-950 border border-slate-800 rounded-2xl px-5 py-2.5 flex-grow mx-2">
+                    <Lock size={14} className="text-green-500" />
+                    <span className="text-sm font-bold text-slate-300 truncate max-w-xl">{site.url}</span>
                     <div className="flex-grow"></div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 pr-2">
                         <div className={`w-2 h-2 rounded-full ${status === 'Tamamlandı' ? 'bg-green-500' : 'bg-primary-500 animate-pulse'}`}></div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{status}</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                            {status === 'Tamamlandı' ? 'GÜVENLİ BAĞLANTI' : status}
+                        </span>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2 mr-4">
-                    <button onClick={refreshPage} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400"><RotateCw size={18} /></button>
-                </div>
-            </div>
-
-            {/* Sub-Header / Tooltip */}
-            <div className="bg-primary-600/10 border-b border-primary-500/20 px-4 py-1 flex items-center justify-center gap-6">
-                <div className="flex items-center gap-2 text-[10px] font-bold text-primary-400 uppercase tracking-widest">
-                    <MousePointer2 size={12} /> Tıklama Aktif
-                </div>
-                <div className="flex items-center gap-2 text-[10px] font-bold text-primary-400 uppercase tracking-widest border-l border-primary-500/20 pl-6">
-                    <Keyboard size={12} /> Klavye Aktif
-                </div>
-                <div className="flex items-center gap-2 text-[10px] font-bold text-primary-400 uppercase tracking-widest border-l border-primary-500/20 pl-6">
-                    <Monitor size={12} /> CANLI YAYIN (VNC)
+                <div className="flex items-center gap-2 mr-2">
+                    <button onClick={refreshPage} className="p-2.5 hover:bg-slate-800 rounded-xl text-slate-400 bg-slate-950/50 border border-slate-800">
+                        <RotateCw size={18} />
+                    </button>
+                    <button className="flex items-center gap-2 bg-primary-600 hover:bg-primary-500 px-4 py-2.5 rounded-xl font-bold text-xs transition-all">
+                        <ExternalLink size={14} /> Sitede Gör
+                    </button>
                 </div>
             </div>
 
             {/* Browser Viewport */}
-            <div
-                className="flex-grow bg-white relative overflow-hidden"
-            >
+            <div className="flex-grow bg-white relative overflow-hidden">
                 <iframe
                     src={`/tunnel/${siteId}`}
-                    className="w-full h-full border-none"
+                    className="w-full h-full border-none bg-white"
                     title="Remote Session"
                 />
 
                 {/* Status Overlay (Fade out if connected) */}
                 {status !== 'Tamamlandı' && (
-                    <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center gap-6 z-20">
-                        <div className="w-20 h-20 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
-                        <p className="text-slate-300 font-black uppercase tracking-widest">{status}</p>
+                    <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl flex flex-col items-center justify-center gap-8 z-20">
+                        <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin shadow-[0_0_30px_-5px_rgba(59,130,246,0.5)]"></div>
+                        <div className="text-center">
+                            <h2 className="text-2xl font-black mb-2 tracking-tighter uppercase">{status}</h2>
+                            <p className="text-slate-500 text-sm font-medium">Bütün bilgileriniz güvenle aktarılıyor...</p>
+                        </div>
                     </div>
                 )}
             </div>
@@ -142,7 +139,6 @@ const SiteView = ({ siteId, user, onExit }) => {
                 </div>
             </div>
         </div>
-        </div >
     );
 };
 
