@@ -108,6 +108,15 @@ async function performSmartLogin(page, site, id = null) {
 
             const decryptedPassword = decrypt(site.site_password);
             await passEl.type(decryptedPassword || '', { delay: 50 });
+            await broadcastFrame(page, id);
+
+            // Yedek Plan: Eğer type işe yaramadıysa (JS ile set et)
+            await page.evaluate((u, p, us, ps) => {
+                const userInp = document.querySelector(us);
+                const passInp = document.querySelector(ps);
+                if (userInp && !userInp.value) userInp.value = u;
+                if (passInp && !passInp.value) passInp.value = p;
+            }, site.site_username, decryptedPassword, userSelectors.join(','), passSelectors.join(','));
 
             await updateStatus(id, 'Giriş Yapılıyor...');
             console.log("[LOGIN] Giriş yapılıyor...");
@@ -191,8 +200,8 @@ router.delete('/:id', async (req, res) => {
 async function openInteractiveBrowser(site) {
     let browser;
     const port = 9100 + (parseInt(site.id) % 500);
-    // Artık sistem geçici klasörünü kullanıyoruz, böylece proje klasörü şişmiyor.
-    const profilePath = path.join(os.tmpdir(), `portal-site-${site.id}-${Date.now()}`);
+    // Profil yolundan Date.now()'u çıkardık, böylece oturumlar (cookie) kalıcı olur.
+    const profilePath = path.join(os.tmpdir(), `portal-site-profile-${site.id}`);
 
     try {
         // Önce çalışan bir instance var mı kontrol et
