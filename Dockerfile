@@ -3,17 +3,15 @@ FROM node:20 AS builder
 WORKDIR /app
 COPY . .
 
-# Build Client - Ensure devDependencies are installed for build
+# Build Client
 WORKDIR /app/client
-ARG VITE_API_URL
-ENV VITE_API_URL=$VITE_API_URL
-# Force development mode during install to get Vite
-RUN npm install --include=dev
-RUN npx vite build
+RUN npm install
+RUN npm run build
 
 # Build Server
-WORKDIR /app/server
-RUN npm install --production=false
+WORKDIR /app
+COPY server/package*.json ./server/
+RUN cd server && npm install --production
 
 # Stage 2: Runtime
 FROM node:20-slim
@@ -32,9 +30,10 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y google-chrome-stable --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy build results and server source
+# Copy results
 COPY --from=builder /app/client/dist ./client/dist
 COPY --from=builder /app/server ./server
+COPY package*.json ./
 
 # Persistence & Environment
 RUN mkdir -p public/screenshots /app/data

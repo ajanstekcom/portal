@@ -7,8 +7,8 @@ export default defineConfig({
     server: {
         port: 5173,
         proxy: {
-            '/api': 'http://localhost:5001',
-            '/screenshots': 'http://localhost:5001'
+            '/api': 'http://localhost:3000',
+            '/screenshots': 'http://localhost:3000'
         }
     }
 })

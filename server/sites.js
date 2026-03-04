@@ -38,47 +38,57 @@ async function updateStatus(id, status) {
 
 async function performSmartLogin(page, site, id = null) {
     if (id) await updateStatus(id, 'Giriş deneniyor...');
+    console.log(`[LOGIN] ${site.name} için giriş başlatıldı: ${site.url}`);
 
     try {
-        // Formun yüklenmesi için kısa bir bekleme
-        await delay(1000);
+        await delay(2000);
 
-        const userSelectors = ['input[type="text"]', 'input[type="email"]', 'input[name*="user" i]', 'input[id*="user" i]'];
-        const passSelectors = ['input[type="password"]', 'input[name*="pass" i]', 'input[id*="id" i]'];
+        const userSelectors = ['input[type="text"]', 'input[type="email"]', 'input[name*="user" i]', 'input[id*="user" i]', 'input[placeholder*="eposta" i]', 'input[placeholder*="username" i]'];
+        const passSelectors = ['input[type="password"]', 'input[name*="pass" i]', 'input[id*="id" i]', 'input[placeholder*="şifre" i]', 'input[placeholder*="password" i]'];
 
         let userEl, passEl;
         for (const s of userSelectors) { if (userEl = await page.$(s)) break; }
         for (const s of passSelectors) { if (passEl = await page.$(s)) break; }
 
-        // Eğer direkt form yoksa "Admin Girişi" butonuna basmayı dene (Görseldeki gibi)
         if (!userEl && !passEl) {
-            const loginBtn = await page.$('button::-p-text(Admin Girişi)') || await page.$('a::-p-text(Admin Girişi)');
+            console.log("[LOGIN] Form bulunamadı, giriş butonu aranıyor...");
+            const loginBtn = await page.$('button::-p-text(Admin Girişi)') ||
+                await page.$('a::-p-text(Admin Girişi)') ||
+                await page.$('button::-p-text(Giriş Yap)') ||
+                await page.$('button::-p-text(LOGIN)');
+
             if (loginBtn) {
+                console.log("[LOGIN] Giriş butonu bulundu, tıklanıyor...");
                 await loginBtn.click();
-                await delay(1500);
+                await delay(2000);
                 for (const s of userSelectors) { if (userEl = await page.$(s)) break; }
                 for (const s of passSelectors) { if (passEl = await page.$(s)) break; }
             }
         }
 
         if (userEl && passEl) {
+            console.log("[LOGIN] Form elemanları bulundu, bilgiler giriliyor...");
             await userEl.click({ clickCount: 3 });
             await page.keyboard.press('Backspace');
-            await userEl.type(site.site_username, { delay: 30 });
+            await userEl.type(site.site_username, { delay: 50 });
 
             await passEl.click({ clickCount: 3 });
             await page.keyboard.press('Backspace');
 
-            // Şifreyi burada çözüp tarayıcıya yazıyoruz
             const decryptedPassword = decrypt(site.site_password);
-            await passEl.type(decryptedPassword || '', { delay: 30 });
+            await passEl.type(decryptedPassword || '', { delay: 50 });
 
+            console.log("[LOGIN] Giriş yapılıyor...");
             await page.keyboard.press('Enter');
-            // Giriş sonrası sayfanın oturum açmasını bekle
-            await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => { });
+            await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {
+                console.log("[LOGIN] Navigasyon zaman aşımına uğradı, devam ediliyor.");
+            });
+            console.log("[LOGIN] İşlem tamamlandı.");
+        } else {
+            console.log("[LOGIN] Form elemanları bulunamadı (Username/Password inputları yok).");
         }
     } catch (err) {
-        console.log("Login adımı atlandı veya hata oluştu:", err.message);
+        console.error("[LOGIN] Kritik hata:", err.message);
     }
 }
 

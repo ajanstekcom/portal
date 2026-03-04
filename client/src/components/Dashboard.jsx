@@ -360,21 +360,21 @@ const Dashboard = ({ user, onLogout }) => {
                                     onClick={async () => {
                                         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
-                                        if (isLocal) {
-                                            try {
-                                                await api.get(`/sites/${focusSite.id}/open`);
-                                            } catch (err) {
-                                                alert('Tarayıcı açılamadı');
-                                            }
-                                        } else {
-                                            // Uzak sunucuda magic login (sunucu taraflı tarayıcı) çalışmaz, 
-                                            // bu yüzden direkt linki yeni sekmede açıyoruz.
+                                        // Uzak sunucuda linki yeni sekmede aç (kullanıcı görsün diye)
+                                        if (!isLocal) {
                                             window.open(focusSite.url, '_blank');
+                                        }
+
+                                        try {
+                                            // Her durumda API'yi çağır (otomatik login tetiklensin)
+                                            await api.get(`/sites/${focusSite.id}/open`);
+                                        } catch (err) {
+                                            if (isLocal) alert('Tarayıcı açılamadı');
                                         }
                                     }}
                                     className="w-full bg-white text-black hover:bg-slate-100 font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all mt-8 active:scale-95"
                                 >
-                                    SİTEYİ AÇ {window.location.hostname === 'localhost' ? '(OTOMATİK GİRİŞ)' : ''} <ExternalLink size={20} />
+                                    SİTEYİ AÇ (OTOMATİK GİRİŞ) <ExternalLink size={20} />
                                 </button>
                             </div>
                         </motion.div>
