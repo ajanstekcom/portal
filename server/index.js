@@ -27,11 +27,28 @@ app.use((req, res) => {
     res.sendFile(path.join(__dirname, '../client/dist', 'index.html'));
 });
 
-// Initialize DB and start server
-initDb().then(() => {
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log(`Server running on port ${PORT}`);
-    });
-}).catch(err => {
-    console.error('Failed to initialize database:', err);
+// Global Error Handlers
+process.on('uncaughtException', (err) => {
+    console.error('[CRITICAL] Uncaught Exception:', err);
+    process.exit(1);
 });
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
+    process.exit(1);
+});
+
+// Initialize DB and start server
+const startServer = async () => {
+    try {
+        await initDb();
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`[${new Date().toISOString()}] Server running on port ${PORT}`);
+        });
+    } catch (err) {
+        console.error('[CRITICAL] Failed to initialize database:', err);
+        process.exit(1);
+    }
+};
+
+startServer();

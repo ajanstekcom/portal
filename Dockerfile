@@ -20,7 +20,7 @@ ENV VITE_API_URL=$VITE_API_URL
 RUN npx vite build
 
 # Stage 2: Runtime
-FROM node:20-slim
+FROM node:20
 WORKDIR /app
 
 # Install dependencies for Puppeteer & Chrome
