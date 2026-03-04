@@ -16,7 +16,20 @@ const initDb = async () => {
     // Runtime seeding: Eğer DB dosyası yoksa ama yedek varsa kopyala
     const dbPath = process.env.DB_PATH || path.join(__dirname, 'database.sqlite');
     const seedPath = path.join(__dirname, 'database.sqlite');
+    const dbDir = path.dirname(dbPath);
 
+    // Permission check
+    try {
+        if (!fs.existsSync(dbDir)) {
+            fs.mkdirSync(dbDir, { recursive: true });
+        }
+        fs.accessSync(dbDir, fs.constants.W_OK);
+        console.log(`[DB] Klasör erişimi onaylandı: ${dbDir}`);
+    } catch (err) {
+        console.error(`[DB] KRİTİK: Veritabanı klasörüne (${dbDir}) yazma yetkisi yok!`, err.message);
+    }
+
+    // Seeding (Move seed to external volume if missing)
     if (dbPath !== seedPath && !fs.existsSync(dbPath) && fs.existsSync(seedPath)) {
         console.log('[DB] Yeni bir volume tespit edildi, veritabanı kopyalanıyor...');
         try {
