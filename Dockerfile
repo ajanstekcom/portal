@@ -1,21 +1,17 @@
 # Stage 1: Builder
 FROM node:20 AS builder
+WORKDIR /app
+COPY . .
 
 # Build Client
 WORKDIR /app/client
-COPY client/package*.json ./
-RUN npm install
-
-COPY client/ ./
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
-RUN npm run build
+RUN npm install && npx vite build
 
 # Build Server
 WORKDIR /app/server
-COPY server/package*.json ./
 RUN npm install
-COPY server/ ./
 
 # Stage 2: Runtime
 FROM node:20-slim
