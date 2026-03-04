@@ -358,8 +358,11 @@ const Dashboard = ({ user, onLogout }) => {
                                 </div>
 
                                 <button
+                                    disabled={actionLoading === focusSite.id}
                                     onClick={async () => {
                                         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+                                        setActionLoading(focusSite.id);
 
                                         // Uzak sunucuda linki yeni sekmede aç (kullanıcı görsün diye)
                                         if (!isLocal) {
@@ -369,13 +372,21 @@ const Dashboard = ({ user, onLogout }) => {
                                         try {
                                             // Her durumda API'yi çağır (otomatik login tetiklensin)
                                             await api.get(`/sites/${focusSite.id}/open`);
+                                            // Yenile ki yeni screenshot/statü gelsin
+                                            fetchSites();
                                         } catch (err) {
                                             if (isLocal) alert('Tarayıcı açılamadı');
+                                        } finally {
+                                            setActionLoading(null);
                                         }
                                     }}
-                                    className="w-full bg-white text-black hover:bg-slate-100 font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all mt-8 active:scale-95"
+                                    className={`w-full ${actionLoading === focusSite.id ? 'bg-slate-800 text-white' : 'bg-white text-black'} hover:bg-slate-100 font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all mt-8 active:scale-95`}
                                 >
-                                    SİTEYİ AÇ (OTOMATİK GİRİŞ) <ExternalLink size={20} />
+                                    {actionLoading === focusSite.id ? (
+                                        <>GİRİŞ YAPILIYOR... <Globe className="animate-spin" size={20} /></>
+                                    ) : (
+                                        <>SİTEYİ AÇ (OTOMATİK GİRİŞ) <ExternalLink size={20} /></>
+                                    )}
                                 </button>
                             </div>
                         </motion.div>
