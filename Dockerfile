@@ -1,17 +1,23 @@
 # Stage 1: Builder
 FROM node:20 AS builder
 WORKDIR /app
+
+# Install client dependencies
+COPY client/package*.json ./client/
+RUN cd client && npm install --include=dev
+
+# Install server dependencies
+COPY server/package*.json ./server/
+RUN cd server && npm install
+
+# Copy source
 COPY . .
 
 # Build Client
 WORKDIR /app/client
-RUN npm install
-RUN npm run build
-
-# Build Server
-WORKDIR /app
-COPY server/package*.json ./server/
-RUN cd server && npm install --production
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+RUN npx vite build
 
 # Stage 2: Runtime
 FROM node:20-slim
@@ -30,7 +36,7 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y google-chrome-stable --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy results
+# Copy build results
 COPY --from=builder /app/client/dist ./client/dist
 COPY --from=builder /app/server ./server
 COPY package*.json ./
