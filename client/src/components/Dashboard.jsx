@@ -157,6 +157,17 @@ const Dashboard = ({ user, onLogout, onOpenSite }) => {
 
                 <motion.div initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="flex gap-4">
                     <button
+                        onClick={() => {
+                            document.cookie = "portal_tunnel_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                            window.location.reload();
+                        }}
+                        className="flex items-center gap-2 bg-slate-900/80 hover:bg-red-500/20 text-slate-400 hover:text-red-500 px-4 py-3 rounded-xl font-bold transition-all border border-slate-800 active:scale-95 group"
+                        title="Tüneli Sıfırla"
+                    >
+                        <RefreshCw size={20} className="group-hover:animate-spin" />
+                        <span className="hidden md:inline">Tüneli Sıfırla</span>
+                    </button>
+                    <button
                         onClick={() => setShowAddModal(true)}
                         className="flex items-center gap-2 bg-primary-600 hover:bg-primary-500 px-6 py-3 rounded-xl font-bold transition-all shadow-xl shadow-primary-500/20 active:scale-95 border border-primary-400/20"
                     >

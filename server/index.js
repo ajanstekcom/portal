@@ -135,22 +135,19 @@ const tunnelProxy = createProxyMiddleware({
 
         const session = global.activePages.get(siteId.toString());
         if (session && session.siteUrl) {
-            console.log(`[TUNNEL PROXY] ${req.url} -> ${session.siteUrl} (Site: ${siteId})`);
             return session.siteUrl;
         }
-        console.warn(`[TUNNEL PROXY] No active session for ID: ${siteId}`);
-        return null; // Eğer router null dönerse target'a gider, o da localhost:3000 (hata verir)
+        return null;
     },
     changeOrigin: true,
-    secure: false, // Sertifika hatalarını görmezden gel
-    autoRewrite: true,
+    secure: false,
+    autoRewrite: true, // Internal linklerdeki port/path düzeltmelerini yapar
     followRedirects: true,
     on: {
         error: (err, req, res) => {
             console.error('[PROXY ERROR]', err.message, 'URL:', req.url);
-            // Hata durumunda çerezi temizleyip ana sayfaya atabiliriz
             if (res.writeHead && !res.headersSent) {
-                res.clearCookie('portal_tunnel_id');
+                // Eğer tüneldeyse ve hata aldıysa çerezi temizleme, sadece hata ver
                 res.status(500).send('Bağlantı hatası: Hedef siteye ulaşılamıyor veya oturum kapandı.');
             }
         },
@@ -173,7 +170,24 @@ const tunnelProxy = createProxyMiddleware({
             delete proxyRes.headers['content-security-policy'];
             delete proxyRes.headers['x-content-security-policy'];
 
-            // Eğer giriş yapıldıysa ve bir ID varsa, çerezi tazele
+            // Redirect Rewriting: Sunucu seni dışarı (başka domaine) atmaya çalışırsa yakala
+            if (proxyRes.headers.location) {
+                const siteId = req.params.id || req.cookies.portal_tunnel_id;
+                const session = global.activePages.get(siteId?.toString());
+                if (session && session.siteUrl) {
+                    const targetUrl = new URL(session.siteUrl);
+                    const locationUrl = proxyRes.headers.location;
+
+                    // Eğer redirect hedefi bizim tünellediğimiz sitenin kendisiyse (absolute link)
+                    // Onu portal domainine çevir
+                    if (locationUrl.startsWith(targetUrl.origin)) {
+                        proxyRes.headers.location = locationUrl.replace(targetUrl.origin, '');
+                        console.log(`[REDIRECT REWRITE] ${locationUrl} -> ${proxyRes.headers.location}`);
+                    }
+                }
+            }
+
+            // Tünel çerezini tazele
             if (req.params.id) {
                 res.cookie('portal_tunnel_id', req.params.id, { maxAge: 3600000, path: '/' });
             }
@@ -184,7 +198,7 @@ const tunnelProxy = createProxyMiddleware({
         if (id) {
             return path.replace(`/tunnel/${id}`, '');
         }
-        return path; // Sticky modda path'i ellemiyoruz
+        return path;
     }
 });
 
@@ -241,15 +255,16 @@ app.get(/.*/, (req, res) => {
     // API veya Statik dosya isteğiyse (. noktası içeriyorsa) ve buraya düştüyse direkt 404
     if (req.url.startsWith('/api/') || (req.path.includes('.') && !req.path.endsWith('.html'))) {
         console.warn(`[ROUTE 404] Statik veya API hatası: ${req.url}`);
-        return res.status(404).json({ error: 'Not Found', path: req.url });
+        return res.status(404).type('text/plain').send('File not found');
     }
 
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         // Cache busting for index.html to ensure new asset hashes are picked up
-        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
         res.setHeader('Pragma', 'no-cache');
         res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
         res.sendFile(indexPath);
     } else {
         res.status(404).send('Frontend build results not found. Please run build script.');
