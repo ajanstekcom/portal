@@ -1,0 +1,21 @@
+{
+  "name": "portal",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"cd server && npm run dev\" \"cd client && npm run dev\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "autoprefixer": "^10.4.27",
+    "axios": "^1.13.6",
+    "concurrently": "^9.2.1",
+    "framer-motion": "^12.34.5",
+    "lucide-react": "^0.577.0",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.1"
+  }
+}

@@ -1,0 +1,21 @@
+services:
+  portal:
+    build:
+      context: .
+      args:
+        - VITE_API_URL=https://portal.ajanstek.com/api
+    image: portal-app
+    container_name: portal-app
+    environment:
+      - PORT=5001
+      - NODE_ENV=production
+      - CHROME_PATH=/usr/bin/google-chrome-stable
+      - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - PORTAL_URL=https://portal.ajanstek.com
+    volumes:
+      - ./server/database.sqlite:/app/server/database.sqlite
+      - ./public/screenshots:/app/public/screenshots
+    ports:
+      - "5001:5001"
+    restart: always
