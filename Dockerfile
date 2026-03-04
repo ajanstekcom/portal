@@ -42,7 +42,7 @@ COPY --from=builder /app/server ./server
 COPY package*.json ./
 
 # Persistence & Environment
-RUN mkdir -p public/screenshots /app/data
+RUN mkdir -p public/screenshots /app/data && cp server/database.sqlite /app/data/database.sqlite || true
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV CHROME_PATH=/usr/bin/google-chrome-stable
