@@ -18,6 +18,7 @@ app.use('/screenshots', express.static(path.join(__dirname, '../public/screensho
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
 // Routes
+app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
 
