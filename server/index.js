@@ -9,6 +9,12 @@ const authRoutes = require('./auth');
 const siteRoutes = require('./sites');
 
 const app = express();
+const http = require('http').createServer(app);
+const io = require('socket.io')(http, {
+    cors: { origin: "*", methods: ["GET", "POST"] }
+});
+global.io = io;
+
 const PORT = process.env.PORT || 3000;
 console.log(`[BOOT] Hedef Port: ${PORT}`);
 
@@ -96,8 +102,9 @@ process.on('unhandledRejection', (reason, promise) => {
 let dbInitialized = false;
 
 // Start server immediately
-app.listen(PORT, '0.0.0.0', () => {
+http.listen(PORT, '0.0.0.0', () => {
     console.log(`[BOOT] Server ${PORT} portunda dinliyor (0.0.0.0)`);
+    console.log('[BOOT] WebSocket aktif.');
 
     // Initialize DB in background
     initDb().then(() => {

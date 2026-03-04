@@ -45,8 +45,25 @@ const delay = (ms) => new Promise(res => setTimeout(res, ms));
 async function updateStatus(id, status) {
     try {
         await db('sites').where({ id }).update({ status });
+        if (global.io) {
+            global.io.emit(`site-status-${id}`, { status });
+        }
     } catch (e) {
         console.error("DB Güncelleme Hatası:", e.message);
+    }
+}
+
+async function broadcastFrame(page, id) {
+    if (!global.io) return;
+    try {
+        const screenshot = await page.screenshot({
+            encoding: 'base64',
+            type: 'jpeg',
+            quality: 30 // Low quality for speed
+        });
+        global.io.emit(`site-frame-${id}`, { image: screenshot });
+    } catch (e) {
+        // Silently fail if page is closed
     }
 }
 
@@ -213,6 +230,8 @@ async function openInteractiveBrowser(site) {
 
         if (site.requires_login) {
             await performSmartLogin(page, site, site.id);
+        } else {
+            await broadcastFrame(page, site.id);
         }
 
         // Giriş sonrası veya sayfa açıldıktan sonra ekran görüntüsünü güncelle (Uzakta faydalı)
