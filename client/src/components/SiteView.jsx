@@ -3,7 +3,7 @@ import { io } from 'socket.io-client';
 import { ChevronLeft, ChevronRight, RotateCw, Monitor, Shield, X, Maximize2, MousePointer2, Keyboard, ExternalLink, Lock } from 'lucide-react';
 import api from '../api';
 
-const socket = io(window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin);
+const socket = io();
 
 const SiteView = ({ siteId, user, onExit }) => {
     const [site, setSite] = useState(null);
@@ -45,32 +45,10 @@ const SiteView = ({ siteId, user, onExit }) => {
         };
     }, [siteId]);
 
-    const handleInteraction = (type, e) => {
-        if (!containerRef.current) return;
-        const rect = containerRef.current.getBoundingClientRect();
-
-        if (type === 'click') {
-            socket.emit('site-interaction', {
-                id: siteId,
-                type: 'click',
-                x: e.clientX - rect.left,
-                y: e.clientY - rect.top,
-                width: rect.width,
-                height: rect.height
-            });
-        }
-    };
-
-    const handleKey = (e) => {
-        if (e.key.length === 1) {
-            socket.emit('site-interaction', { id: siteId, type: 'type', text: e.key });
-        } else {
-            socket.emit('site-interaction', { id: siteId, type: 'key', key: e.key });
-        }
-    };
-
     const refreshPage = () => {
-        socket.emit('site-interaction', { id: siteId, type: 'refresh' });
+        // Iframe'i yenilemek yeterli
+        const iframe = document.querySelector('iframe');
+        if (iframe) iframe.src = iframe.src;
     };
 
     if (!site) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white">Yükleniyor...</div>;

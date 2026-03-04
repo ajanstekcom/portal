@@ -4,7 +4,7 @@ import { Plus, Globe, LogOut, RefreshCw, ExternalLink, X, Shield, Lock, Eye, Eye
 import { motion, AnimatePresence } from 'framer-motion';
 import { io } from 'socket.io-client';
 
-const socket = io(window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin);
+const socket = io();
 
 const Dashboard = ({ user, onLogout, onOpenSite }) => {
     const [sites, setSites] = useState([]);
