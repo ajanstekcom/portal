@@ -1,13 +1,12 @@
 # Stage 1: Build the React frontend
-FROM node:20-slim AS frontend-builder
-WORKDIR /app/client
-COPY client/package*.json ./
-RUN npm install
-COPY client/ ./
-# We set this at build time or runtime? Better build time for Vite.
+FROM node:20 AS frontend-builder
+WORKDIR /app
+COPY client/package*.json ./client/
+RUN cd client && npm install
+COPY client/ ./client/
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
-RUN npm run build
+RUN cd client && npm run build
 
 # Stage 2: Setup the Node.js backend
 FROM node:20-slim
@@ -63,25 +62,21 @@ RUN apt-get update && apt-get install -y wget gnupg \
     && apt-get install -y google-chrome-stable --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app/server
-COPY server/package*.json ./
-RUN npm install
+# Copy backend and built frontend
+COPY server/package*.json ./server/
+RUN cd server && npm install
 
-COPY server/ ./
-COPY --from=frontend-builder /app/client/dist /app/client/dist
+COPY server/ ./server/
+COPY --from=frontend-builder /app/client/dist ./client/dist
 
-# Go back to /app to handle screenshots and database persistence
-WORKDIR /app
-# Prepare folders for persistence
+# Persistance folders
 RUN mkdir -p public/screenshots
-RUN mkdir -p server
 
 # Set environment variables
 ENV NODE_ENV=production
 ENV PORT=5001
+ENV CHROME_PATH=/usr/bin/google-chrome-stable
 
 EXPOSE 5001
 
-# Run the server
-WORKDIR /app/server
-CMD ["node", "index.js"]
+CMD ["node", "server/index.js"]

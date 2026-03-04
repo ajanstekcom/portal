@@ -1,0 +1,25 @@
+# Local dependencies
+node_modules
+client/node_modules
+server/node_modules
+
+# Build outputs
+client/dist
+dist
+
+# Environment and DB
+.env
+*.sqlite
+database.sqlite
+public/screenshots/*
+
+# Git and OS
+.git
+.gitignore
+.DS_Store
+Thumbs.db
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
