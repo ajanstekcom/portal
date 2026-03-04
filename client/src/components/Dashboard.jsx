@@ -302,10 +302,35 @@ const Dashboard = ({ user, onLogout }) => {
                             {/* Visual Preview */}
                             <div className="flex-grow bg-slate-950 p-4 overflow-hidden flex items-center justify-center relative min-h-[400px]">
                                 {liveFrame ? (
-                                    <div className="relative w-full h-full">
-                                        <img src={liveFrame} alt="Live Stream" className="w-full h-full object-contain rounded-2xl shadow-2xl" />
+                                    <div
+                                        className="relative w-full h-full cursor-crosshair group/vnc"
+                                        onClick={(e) => {
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            const x = e.clientX - rect.left;
+                                            const y = e.clientY - rect.top;
+                                            socket.emit('site-interaction', {
+                                                id: focusSite.id,
+                                                type: 'click',
+                                                x, y,
+                                                width: rect.width,
+                                                height: rect.height
+                                            });
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key.length === 1) {
+                                                socket.emit('site-interaction', { id: focusSite.id, type: 'type', text: e.key });
+                                            } else {
+                                                socket.emit('site-interaction', { id: focusSite.id, type: 'key', key: e.key });
+                                            }
+                                        }}
+                                        tabIndex="0" // Klavyeyi yakalamak için gerekli
+                                    >
+                                        <img src={liveFrame} alt="Live Stream" className="w-full h-full object-contain rounded-2xl shadow-2xl pointer-events-none" />
                                         <div className="absolute top-4 right-4 bg-red-600 px-3 py-1 rounded-full text-[10px] font-black animate-pulse flex items-center gap-1">
-                                            <Monitor size={12} /> CANLI YAYIN
+                                            <Monitor size={12} /> CANLI YAYIN (ETKİLEŞİMLİ)
+                                        </div>
+                                        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/40 backdrop-blur-sm px-4 py-2 rounded-full text-[10px] font-bold text-slate-400 opacity-0 group-hover/vnc:opacity-100 transition-opacity">
+                                            IPUÇU: Tıkla ve Yazmaya Başla (Enter, Backspace desteklenir)
                                         </div>
                                     </div>
                                 ) : focusSite.screenshot_path ? (

@@ -41,31 +41,7 @@ const getChromePath = () => {
 const EXECUTABLE_PATH = getChromePath();
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
-// --- YARDIMCI FONKSİYONLAR ---
-async function updateStatus(id, status) {
-    try {
-        await db('sites').where({ id }).update({ status });
-        if (global.io) {
-            global.io.emit(`site-status-${id}`, { status });
-        }
-    } catch (e) {
-        console.error("DB Güncelleme Hatası:", e.message);
-    }
-}
-
-async function broadcastFrame(page, id) {
-    if (!global.io) return;
-    try {
-        const screenshot = await page.screenshot({
-            encoding: 'base64',
-            type: 'jpeg',
-            quality: 30 // Low quality for speed
-        });
-        global.io.emit(`site-frame-${id}`, { image: screenshot });
-    } catch (e) {
-        // Silently fail if page is closed
-    }
-}
+const { updateStatus, broadcastFrame } = require('./sites_helpers');
 
 async function performSmartLogin(page, site, id = null) {
     if (id) await updateStatus(id, 'Giriş deneniyor...');
@@ -248,19 +224,18 @@ async function openInteractiveBrowser(site) {
             await broadcastFrame(page, site.id);
         }
 
-        // Giriş sonrası veya sayfa açıldıktan sonra ekran görüntüsünü güncelle (Uzakta faydalı)
-        console.log(`[BROWSER] ${site.name} için güncel ekran görüntüsü alınıyor...`);
-        const screenshotName = `site-${site.id}-${Date.now()}.png`;
-        const screenshotPath = path.join(__dirname, '../public/screenshots', screenshotName);
+        // Sayfa kaydını güncelle
+        global.activePages.set(site.id.toString(), { page, browser, lastActivity: Date.now() });
 
-        await delay(3000); // Dinamik içeriklerin oturması için biraz daha bekle
-        await page.screenshot({ path: screenshotPath });
-
-        await db('sites').where({ id: site.id }).update({
-            screenshot_path: `/screenshots/${screenshotName}`,
-            status: 'Tamamlandı'
-        });
-        console.log(`[BROWSER] ${site.name} güncellendi.`);
+        // Sürekli yayın (Kullanıcı modalı açık tuttuğu sürece)
+        const frameInterval = setInterval(async () => {
+            if (page.isClosed()) {
+                clearInterval(frameInterval);
+                global.activePages.delete(site.id.toString());
+                return;
+            }
+            await broadcastFrame(page, site.id);
+        }, 1000);
 
     } catch (err) {
         console.error(`[BROWSER] ${site.name} penceresinde hata:`, err.message);

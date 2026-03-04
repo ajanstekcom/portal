@@ -15,6 +15,44 @@ const io = require('socket.io')(http, {
 });
 global.io = io;
 
+// VNC Page Registry
+global.activePages = new Map();
+
+io.on('connection', (socket) => {
+    console.log(`[SOCKET] Yeni bağlantı: ${socket.id}`);
+
+    socket.on('site-interaction', async (data) => {
+        const { id, type, x, y, width, height, text, key } = data;
+        const session = global.activePages.get(id.toString());
+        if (!session || !session.page) return;
+
+        try {
+            if (type === 'click') {
+                const viewport = session.page.viewport() || { width: 1280, height: 720 };
+                const realX = Math.round((x / width) * viewport.width);
+                const realY = Math.round((y / height) * viewport.height);
+                await session.page.mouse.click(realX, realY);
+            } else if (type === 'type') {
+                await session.page.keyboard.type(text, { delay: 20 });
+            } else if (type === 'key') {
+                await session.page.keyboard.press(key);
+            } else if (type === 'refresh') {
+                await session.page.reload({ waitUntil: 'networkidle2' });
+            }
+
+            // Etkileşim sonrası hemen bir kare gönder
+            const { broadcastFrame } = require('./sites_helpers'); // Dairesel bağımlılığı önlemek için
+            await broadcastFrame(session.page, id);
+        } catch (e) {
+            console.error(`[INTERACTION ERROR] Site ${id}:`, e.message);
+        }
+    });
+
+    socket.on('disconnect', () => {
+        console.log(`[SOCKET] Ayrıldı: ${socket.id}`);
+    });
+});
+
 const PORT = process.env.PORT || 3000;
 console.log(`[BOOT] Hedef Port: ${PORT}`);
 
