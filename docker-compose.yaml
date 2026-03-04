@@ -16,6 +16,4 @@ services:
     volumes:
       - ./data:/app/data
       - ./public/screenshots:/app/public/screenshots
-    ports:
-      - "3000:3000"
     restart: always
