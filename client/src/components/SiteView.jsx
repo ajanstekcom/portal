@@ -113,38 +113,36 @@ const SiteView = ({ siteId, user, onExit }) => {
 
             {/* Browser Viewport */}
             <div
-                ref={containerRef}
-                className="flex-grow bg-black relative flex items-center justify-center overflow-hidden cursor-crosshair group focus:outline-none"
-                onClick={(e) => handleInteraction('click', e)}
-                onKeyDown={handleKey}
-                tabIndex="0"
+                className="flex-grow bg-white relative overflow-hidden"
             >
-                {liveFrame ? (
-                    <img
-                        src={liveFrame}
-                        alt="Remote Browser"
-                        className="w-full h-full object-contain pointer-events-none transition-opacity duration-300"
-                    />
-                ) : (
-                    <div className="flex flex-col items-center gap-6">
+                <iframe
+                    src={`/tunnel/${siteId}`}
+                    className="w-full h-full border-none"
+                    title="Remote Session"
+                />
+
+                {/* Status Overlay (Fade out if connected) */}
+                {status !== 'Tamamlandı' && (
+                    <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center gap-6 z-20">
                         <div className="w-20 h-20 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
-                        <p className="text-slate-500 font-black uppercase tracking-widest">Görüntü Bekleniyor...</p>
+                        <p className="text-slate-300 font-black uppercase tracking-widest">{status}</p>
                     </div>
                 )}
+            </div>
 
-                {/* User Info Overlay (Bottom Right) */}
-                <div className="absolute bottom-8 right-8 bg-slate-900/80 backdrop-blur-md p-4 rounded-2xl border border-slate-700 shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity">
-                    <p className="text-[10px] font-black text-slate-500 uppercase mb-2">OTURUM BİLGİSİ</p>
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center font-bold text-xs">{user.username[0].toUpperCase()}</div>
-                        <div>
-                            <p className="font-bold text-xs">{user.username}</p>
-                            <p className="text-[9px] text-slate-400 font-mono">REMOTE-VNC-SECURE</p>
-                        </div>
+            {/* User Info Overlay (Bottom Right) */}
+            <div className="absolute bottom-8 right-8 bg-slate-900/80 backdrop-blur-md p-4 rounded-2xl border border-slate-700 shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity">
+                <p className="text-[10px] font-black text-slate-500 uppercase mb-2">OTURUM BİLGİSİ</p>
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center font-bold text-xs">{user.username[0].toUpperCase()}</div>
+                    <div>
+                        <p className="font-bold text-xs">{user.username}</p>
+                        <p className="text-[9px] text-slate-400 font-mono">REMOTE-VNC-SECURE</p>
                     </div>
                 </div>
             </div>
         </div>
+        </div >
     );
 };
 

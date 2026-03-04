@@ -225,7 +225,12 @@ async function openInteractiveBrowser(site) {
         }
 
         // Sayfa kaydını güncelle
-        global.activePages.set(site.id.toString(), { page, browser, lastActivity: Date.now() });
+        global.activePages.set(site.id.toString(), {
+            page,
+            browser,
+            siteUrl: site.url,
+            lastActivity: Date.now()
+        });
 
         // Sürekli yayın (Kullanıcı modalı açık tuttuğu sürece)
         const frameInterval = setInterval(async () => {

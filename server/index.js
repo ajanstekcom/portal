@@ -7,6 +7,7 @@ const fs = require('fs');
 const { initDb } = require('./db');
 const authRoutes = require('./auth');
 const siteRoutes = require('./sites');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
 const http = require('http').createServer(app);
@@ -111,6 +112,45 @@ app.get('/api/health', (req, res) => {
 });
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
+
+// Session Tunnel (Reverse Proxy)
+app.use('/tunnel/:id', async (req, res, next) => {
+    const siteId = req.params.id;
+    const session = global.activePages.get(siteId);
+
+    if (!session || !session.page) {
+        return res.status(404).send('Oturum bulunamadı. Lütfen Dashboard\'dan siteyi tekrar başlatın.');
+    }
+
+    try {
+        const cookies = await session.page.cookies();
+        const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+        return createProxyMiddleware({
+            target: session.siteUrl,
+            changeOrigin: true,
+            secure: false,
+            autoRewrite: true,
+            followRedirects: true,
+            onProxyReq: (proxyReq) => {
+                proxyReq.setHeader('Cookie', cookieHeader);
+                proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+            },
+            onProxyRes: (proxyRes) => {
+                // Strip headers that block iframing or cross-origin access
+                delete proxyRes.headers['x-frame-options'];
+                delete proxyRes.headers['content-security-policy'];
+                delete proxyRes.headers['x-content-security-policy'];
+            },
+            pathRewrite: {
+                [`^/tunnel/${siteId}`]: '',
+            }
+        })(req, res, next);
+    } catch (err) {
+        console.error(`[TUNNEL ERROR] ${siteId}:`, err.message);
+        res.status(500).send('Tunnel Hatası: ' + err.message);
+    }
+});
 
 // Global Route Error Handler
 app.use('/api', (err, req, res, next) => {
