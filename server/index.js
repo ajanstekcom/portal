@@ -22,7 +22,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
 
 // Catch-all for SPA
-app.get('(.*)', (req, res) => {
+app.use((req, res) => {
     res.sendFile(path.join(__dirname, '../client/dist', 'index.html'));
 });
 
