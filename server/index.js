@@ -105,6 +105,9 @@ app.use((req, res, next) => {
 });
 
 app.use('/screenshots', express.static(screenshotsPath));
+
+// Portal assets - fallthrough: false ensures missing assets don't hit SPA catch-all
+app.use('/assets', express.static(path.join(distPath, 'assets'), { fallthrough: false }));
 app.use(express.static(distPath));
 
 // Routes
