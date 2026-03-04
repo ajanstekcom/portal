@@ -183,18 +183,41 @@ async function openInteractiveBrowser(site) {
         });
     }
 
-    const pages = await browser.pages();
-    let page = pages.find(p => p.url().includes(site.url)) || (pages.length > 0 ? pages[0] : await browser.newPage());
+    try {
+        const pages = await browser.pages();
+        let page = pages.find(p => p.url().includes(site.url)) || (pages.length > 0 ? pages[0] : await browser.newPage());
 
-    await page.bringToFront();
+        await page.bringToFront();
 
-    // Sayfa boşsa veya yanlış yerdeyse yönlendir
-    if (page.url() === 'about:blank' || !page.url().includes(site.url)) {
-        await page.goto(site.url, { waitUntil: 'networkidle2', timeout: 60000 });
-    }
+        // Sayfa boşsa veya yanlış yerdeyse yönlendir
+        if (page.url() === 'about:blank' || !page.url().includes(site.url)) {
+            console.log(`[BROWSER] ${site.name} için sayfaya gidiliyor...`);
+            await page.goto(site.url, { waitUntil: 'networkidle2', timeout: 60000 }).catch(e => {
+                console.warn(`[BROWSER] Sayfa yükleme uyarısı: ${e.message}`);
+            });
+        }
 
-    if (site.requires_login) {
-        await performSmartLogin(page, site);
+        if (site.requires_login) {
+            await performSmartLogin(page, site, site.id);
+        }
+
+        // Giriş sonrası veya sayfa açıldıktan sonra ekran görüntüsünü güncelle (Uzakta faydalı)
+        console.log(`[BROWSER] ${site.name} için güncel ekran görüntüsü alınıyor...`);
+        const screenshotName = `site-${site.id}-${Date.now()}.png`;
+        const screenshotPath = path.join(__dirname, '../public/screenshots', screenshotName);
+
+        await delay(3000); // Dinamik içeriklerin oturması için biraz daha bekle
+        await page.screenshot({ path: screenshotPath });
+
+        await db('sites').where({ id: site.id }).update({
+            screenshot_path: `/screenshots/${screenshotName}`,
+            status: 'Tamamlandı'
+        });
+        console.log(`[BROWSER] ${site.name} güncellendi.`);
+
+    } catch (err) {
+        console.error(`[BROWSER] ${site.name} penceresinde hata:`, err.message);
+        await updateStatus(site.id, 'Hata Oluştu');
     }
 }
 

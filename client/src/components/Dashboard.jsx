@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 const Dashboard = ({ user, onLogout }) => {
     const [sites, setSites] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [actionLoading, setActionLoading] = useState(null);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showProgressModal, setShowProgressModal] = useState(false);
     const [selectedSiteId, setSelectedSiteId] = useState(null);

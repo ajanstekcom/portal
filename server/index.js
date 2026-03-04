@@ -30,12 +30,11 @@ app.use((req, res) => {
 // Global Error Handlers
 process.on('uncaughtException', (err) => {
     console.error('[CRITICAL] Uncaught Exception:', err);
-    process.exit(1);
+    // Don't exit here, wait and see if it recovers
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
-    process.exit(1);
+    console.error('[WARN] Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 // Initialize DB and start server
@@ -47,7 +46,6 @@ const startServer = async () => {
         });
     } catch (err) {
         console.error('[CRITICAL] Failed to initialize database:', err);
-        process.exit(1);
     }
 };
 
