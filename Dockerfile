@@ -1,57 +1,29 @@
 # Stage 1: Build the React frontend
-FROM node:20 AS frontend-builder
+FROM node:20 AS builder
 WORKDIR /app
-COPY client/package*.json ./client/
-RUN cd client && npm install
-COPY client/ ./client/
+
+# Copy the entire monorepo
+COPY . .
+
+# Build client
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
-RUN cd client && npm run build
+RUN cd client && npm install && npm run build
 
-# Stage 2: Setup the Node.js backend
+# Install server dependencies
+RUN cd server && npm install
+
+# Stage 2: Final Runtime Image
 FROM node:20-slim
 WORKDIR /app
 
 # Install Puppeteer dependencies
 RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libc6 \
-    libcairo2 \
-    libcups2 \
-    libdbus-1-3 \
-    libexpat1 \
-    libfontconfig1 \
-    libgbm1 \
-    libgcc1 \
-    libgdk-pixbuf2.0-0 \
-    libglib2.0-0 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libstdc++6 \
-    libx11-6 \
-    libx11-xcb1 \
-    libxcb1 \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxi6 \
-    libxrandr2 \
-    libxrender1 \
-    libxshmfence1 \
-    libxtst6 \
-    lsb-release \
-    wget \
-    xdg-utils \
-    --no-install-recommends \
+    ca-certificates fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 libc6 libcairo2 libcups2 \
+    libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libgcc1 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 \
+    libnspr4 libnss3 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 \
+    libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 \
+    libxshmfence1 libxtst6 lsb-release wget xdg-utils --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome for Puppeteer
@@ -62,17 +34,12 @@ RUN apt-get update && apt-get install -y wget gnupg \
     && apt-get install -y google-chrome-stable --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy backend and built frontend
-COPY server/package*.json ./server/
-RUN cd server && npm install
+# Copy build results and server source
+COPY --from=builder /app/client/dist ./client/dist
+COPY --from=builder /app/server ./server
 
-COPY server/ ./server/
-COPY --from=frontend-builder /app/client/dist ./client/dist
-
-# Persistance folders
+# Persistence & Environment
 RUN mkdir -p public/screenshots
-
-# Set environment variables
 ENV NODE_ENV=production
 ENV PORT=5001
 ENV CHROME_PATH=/usr/bin/google-chrome-stable
