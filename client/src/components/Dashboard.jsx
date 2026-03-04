@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
-import { Plus, Globe, LogOut, RefreshCw, ExternalLink, X, Shield, Lock, Eye, EyeOff, CheckCircle, Smartphone, Copy, Check, MousePointer2, Wand2, Trash2 } from 'lucide-react';
+import { Plus, Globe, LogOut, RefreshCw, ExternalLink, X, Shield, Lock, Eye, EyeOff, CheckCircle, Smartphone, Copy, Check, MousePointer2, Wand2, Trash2, Monitor } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { io } from 'socket.io-client';
+
+const socket = io(window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin);
 
 const Dashboard = ({ user, onLogout }) => {
     const [sites, setSites] = useState([]);
@@ -13,6 +16,7 @@ const Dashboard = ({ user, onLogout }) => {
     const [showFocusModal, setShowFocusModal] = useState(false);
     const [focusSite, setFocusSite] = useState(null);
     const [copyStatus, setCopyStatus] = useState({});
+    const [liveFrame, setLiveFrame] = useState(null);
 
     const [newSiteName, setNewSiteName] = useState('');
     const [newSiteUrl, setNewSiteUrl] = useState('');
@@ -45,8 +49,30 @@ const Dashboard = ({ user, onLogout }) => {
     useEffect(() => {
         fetchSites();
         const interval = setInterval(fetchSites, 2000);
-        return () => clearInterval(interval);
+
+        socket.on('site-status-updated', fetchSites);
+
+        return () => {
+            clearInterval(interval);
+            socket.off('site-status-updated');
+        };
     }, [selectedSiteId]);
+
+    useEffect(() => {
+        if (actionLoading) {
+            socket.on(`site-frame-${actionLoading}`, (data) => {
+                setLiveFrame(`data:image/jpeg;base64,${data.image}`);
+            });
+            socket.on(`site-status-${actionLoading}`, (data) => {
+                // Dashboard tazeleyelim status gelince
+                fetchSites();
+            });
+        }
+        return () => {
+            socket.off(`site-frame-${actionLoading}`);
+            socket.off(`site-status-${actionLoading}`);
+        };
+    }, [actionLoading]);
 
     const handleAddSite = async (e) => {
         e.preventDefault();
@@ -80,6 +106,7 @@ const Dashboard = ({ user, onLogout }) => {
     };
 
     const handleSiteClick = (site) => {
+        setLiveFrame(null);
         setFocusSite(site);
         setShowFocusModal(true);
     };
@@ -281,12 +308,19 @@ const Dashboard = ({ user, onLogout }) => {
                         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-900 border border-slate-800 rounded-[3rem] w-full max-w-6xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh]">
                             {/* Visual Preview */}
                             <div className="flex-grow bg-slate-950 p-4 overflow-hidden flex items-center justify-center relative min-h-[400px]">
-                                {focusSite.screenshot_path ? (
+                                {liveFrame ? (
+                                    <div className="relative w-full h-full">
+                                        <img src={liveFrame} alt="Live Stream" className="w-full h-full object-contain rounded-2xl shadow-2xl" />
+                                        <div className="absolute top-4 right-4 bg-red-600 px-3 py-1 rounded-full text-[10px] font-black animate-pulse flex items-center gap-1">
+                                            <Monitor size={12} /> CANLI YAYIN
+                                        </div>
+                                    </div>
+                                ) : focusSite.screenshot_path ? (
                                     <img src={focusSite.screenshot_path} alt={focusSite.name} className="w-full h-full object-contain rounded-2xl shadow-2xl" />
                                 ) : (
                                     <div className="text-center">
                                         <RefreshCw className="animate-spin text-primary-500 mx-auto mb-4" size={40} />
-                                        <p className="text-slate-600 font-bold uppercase tracking-widest text-xs">Önizleme Oluşturuluyor</p>
+                                        <p className="text-slate-600 font-bold uppercase tracking-widest text-xs">Bağlanılıyor...</p>
                                     </div>
                                 )}
                                 <div className="absolute top-8 left-8 bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-full border border-slate-700/50 flex items-center gap-2">
