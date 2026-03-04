@@ -62,7 +62,6 @@ console.log(`[BOOT] Hedef Port: ${PORT}`);
 app.use(cors());
 app.use(express.json());
 app.use(cookieParser());
-app.use(cookieParser());
 
 // DB-wait middleware for API routes
 const waitForDb = (req, res, next) => {
@@ -126,20 +125,32 @@ app.use('/api/sites', siteRoutes);
 
 // Session Tunnel (Reverse Proxy) - Dinamik Target & Sticky
 const tunnelProxy = createProxyMiddleware({
-    target: 'http://localhost',
+    target: 'http://localhost', // Fallback
     router: (req) => {
         const siteId = req.params.id || req.cookies.portal_tunnel_id;
-        const session = global.activePages.get(siteId?.toString());
+        if (!siteId) return null;
+
+        const session = global.activePages.get(siteId.toString());
         if (session && session.siteUrl) {
+            console.log(`[TUNNEL PROXY] ${req.url} -> ${session.siteUrl} (Site: ${siteId})`);
             return session.siteUrl;
         }
-        return null;
+        console.warn(`[TUNNEL PROXY] No active session for ID: ${siteId}`);
+        return null; // Eğer router null dönerse target'a gider, o da localhost:3000 (hata verir)
     },
     changeOrigin: true,
-    secure: false,
+    secure: false, // Sertifika hatalarını görmezden gel
     autoRewrite: true,
     followRedirects: true,
     on: {
+        error: (err, req, res) => {
+            console.error('[PROXY ERROR]', err.message, 'URL:', req.url);
+            // Hata durumunda çerezi temizleyip ana sayfaya atabiliriz
+            if (res.writeHead && !res.headersSent) {
+                res.clearCookie('portal_tunnel_id');
+                res.status(500).send('Bağlantı hatası: Hedef siteye ulaşılamıyor veya oturum kapandı.');
+            }
+        },
         proxyReq: async (proxyReq, req, res) => {
             const siteId = req.params.id || req.cookies.portal_tunnel_id;
             const session = global.activePages.get(siteId?.toString());
