@@ -9,19 +9,43 @@ const authRoutes = require('./auth');
 const siteRoutes = require('./sites');
 
 const app = express();
-const PORT = process.env.PORT || 5173;
+const PORT = process.env.PORT || 3000;
 console.log(`[BOOT] Hedef Port: ${PORT}`);
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Static assets check
+// DB-wait middleware for API routes
+const waitForDb = (req, res, next) => {
+    if (dbInitialized) return next();
+
+    console.log(`[WAIT] Request came for ${req.url} but DB is not ready yet. Waiting...`);
+    // Wait for up to 5 seconds, otherwise return 503
+    let attempts = 0;
+    const check = setInterval(() => {
+        attempts++;
+        if (dbInitialized) {
+            clearInterval(check);
+            return next();
+        }
+        if (attempts >= 50) { // 5 seconds (50 * 100ms)
+            clearInterval(check);
+            return res.status(503).json({ error: 'System is still initializing. Please try again in a moment.' });
+        }
+    }, 100);
+};
+
+// Apply DB-wait to all /api routes
+app.use('/api', waitForDb);
+
 const distPath = path.join(__dirname, '../client/dist');
+const isProduction = process.env.NODE_ENV === 'production';
+
 if (fs.existsSync(distPath)) {
     console.log(`[BOOT] Frontend dosyaları bulundu: ${distPath}`);
-} else {
-    console.warn(`[BOOT] KRİTİK: Frontend dosyaları bulunamadı! Yol: ${distPath}`);
+} else if (isProduction) {
+    console.warn(`[BOOT] UYARI: Frontend build (dist) bulunamadı! Yol: ${distPath}`);
 }
 
 // Static files for screenshots and frontend
@@ -38,6 +62,16 @@ app.get('/api/health', (req, res) => {
 });
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
+
+// Global Route Error Handler
+app.use('/api', (err, req, res, next) => {
+    console.error(`[API ERROR] ${req.method} ${req.url}:`, err);
+    res.status(500).json({
+        error: 'Internal Server Error',
+        message: err.message,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+});
 
 // Catch-all for SPA
 app.use((req, res) => {
