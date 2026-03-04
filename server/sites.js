@@ -24,7 +24,21 @@ const authenticate = (req, res, next) => {
 router.use(authenticate);
 
 // --- SABİTLER ---
-const EXECUTABLE_PATH = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const getChromePath = () => {
+    if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
+
+    const platform = process.platform;
+    if (platform === 'darwin') {
+        return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    } else if (platform === 'win32') {
+        return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+    } else {
+        // Linux / Docker
+        return '/usr/bin/google-chrome-stable';
+    }
+};
+
+const EXECUTABLE_PATH = getChromePath();
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
 // --- YARDIMCI FONKSİYONLAR ---
