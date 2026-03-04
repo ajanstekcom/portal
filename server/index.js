@@ -168,8 +168,8 @@ app.use('/api', (err, req, res, next) => {
     });
 });
 
-// Catch-all for SPA
-app.get('*', (req, res) => {
+// Catch-all for SPA - Express 5.x uyumluluğu için Regex kullanıyoruz
+app.get(/.*/, (req, res) => {
     // Statik dosya isteğiyse (nokta içeriyorsa) ve bulunamadıysa 404 dön
     if (req.path.includes('.') && !req.path.endsWith('.html')) {
         return res.status(404).end();
