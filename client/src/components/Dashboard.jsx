@@ -60,18 +60,21 @@ const Dashboard = ({ user, onLogout }) => {
 
     useEffect(() => {
         if (actionLoading) {
-            socket.on(`site-frame-${actionLoading}`, (data) => {
+            const frameEvent = `site-frame-${actionLoading}`;
+            const statusEvent = `site-status-${actionLoading}`;
+
+            socket.on(frameEvent, (data) => {
                 setLiveFrame(`data:image/jpeg;base64,${data.image}`);
             });
-            socket.on(`site-status-${actionLoading}`, (data) => {
-                // Dashboard tazeleyelim status gelince
+            socket.on(statusEvent, (data) => {
                 fetchSites();
             });
+
+            return () => {
+                socket.off(frameEvent);
+                socket.off(statusEvent);
+            };
         }
-        return () => {
-            socket.off(`site-frame-${actionLoading}`);
-            socket.off(`site-status-${actionLoading}`);
-        };
     }, [actionLoading]);
 
     const handleAddSite = async (e) => {
@@ -131,8 +134,6 @@ const Dashboard = ({ user, onLogout }) => {
 
     const currentTrackingSite = sites.find(s => s.id === selectedSiteId);
 
-
-
     return (
         <div className="min-h-screen bg-slate-950 text-white p-4 md:p-8 font-sans selection:bg-primary-500/30">
             {/* Header */}
@@ -173,7 +174,6 @@ const Dashboard = ({ user, onLogout }) => {
                     </motion.div>
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-                        {loading && sites.length === 0 && <div className="col-span-full py-20 text-center"><RefreshCw className="animate-spin inline-block mr-2" /> Yükleniyor...</div>}
                         <AnimatePresence mode="popLayout">
                             {sites.map((site) => (
                                 <motion.div
@@ -215,18 +215,6 @@ const Dashboard = ({ user, onLogout }) => {
                                             </div>
                                             {site.requires_login && <Wand2 size={16} className="text-primary-500/60" />}
                                         </div>
-
-                                        {site.requires_login && (
-                                            <div className="bg-slate-900/40 rounded-2xl p-3 border border-slate-800/50 flex items-center justify-between">
-                                                <div className="flex flex-col">
-                                                    <span className="text-[10px] text-slate-500 uppercase font-black tracking-tighter">Otomatik Giriş Aktif</span>
-                                                    <span className="text-xs font-mono text-slate-300">{site.site_username}</span>
-                                                </div>
-                                                <button onClick={(e) => togglePassword(e, site.id)} className="p-2 hover:bg-slate-800 rounded-xl text-slate-500 hover:text-primary-400 transition-all">
-                                                    {showPasswordMap[site.id] ? <EyeOff size={16} /> : <Eye size={16} />}
-                                                </button>
-                                            </div>
-                                        )}
                                     </div>
                                 </motion.div>
                             ))}
@@ -235,7 +223,7 @@ const Dashboard = ({ user, onLogout }) => {
                 )}
             </main>
 
-            {/* Modals - Same structure, updated content */}
+            {/* Modals */}
             <AnimatePresence>
                 {showAddModal && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
@@ -263,7 +251,7 @@ const Dashboard = ({ user, onLogout }) => {
                                     {requiresLogin && (
                                         <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="pt-6 space-y-4">
                                             <input type="text" className="w-full bg-slate-950/50 border border-slate-800 rounded-xl px-4 py-3 text-sm font-mono" value={siteUsername} onChange={(e) => setSiteUsername(e.target.value)} placeholder="Kullanıcı Adı" />
-                                            <input type="text" className="w-full bg-slate-950/50 border border-slate-800 rounded-xl px-4 py-3 text-sm font-mono" value={sitePassword} onChange={(e) => setSitePassword(e.target.value)} placeholder="Şifre" />
+                                            <input type="password" size="1" className="w-full bg-slate-950/50 border border-slate-800 rounded-xl px-4 py-3 text-sm font-mono" value={sitePassword} onChange={(e) => setSitePassword(e.target.value)} placeholder="Şifre" />
                                         </motion.div>
                                     )}
                                 </div>
@@ -274,7 +262,6 @@ const Dashboard = ({ user, onLogout }) => {
                 )}
             </AnimatePresence>
 
-            {/* Progress Tracking Window */}
             <AnimatePresence>
                 {showProgressModal && (
                     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-xl">
@@ -285,23 +272,17 @@ const Dashboard = ({ user, onLogout }) => {
                             <div className="w-24 h-24 bg-primary-500/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-primary-500/20">
                                 <RefreshCw className="w-10 h-10 text-primary-500 animate-spin" />
                             </div>
-                            <h2 className="text-2xl font-black mb-1 uppercase tracking-tighter">SİSTEM ÇALIŞIYOR</h2>
-                            <p className="text-slate-500 text-sm font-medium mb-10">Botumuz siteye otomatik giriş yapıyor...</p>
+                            <h2 className="text-2xl font-black mb-1 uppercase tracking-tighter">BAĞLANILIYOR</h2>
+                            <p className="text-slate-500 text-sm font-medium mb-10">Site önizlemesi hazırlanıyor...</p>
                             <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 mb-8">
                                 <p className="text-primary-400 font-mono font-bold text-lg animate-pulse">{currentTrackingSite?.status || 'Bağlanıyor...'}</p>
                             </div>
-                            {currentTrackingSite?.screenshot_path && (
-                                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
-                                    <div className="bg-green-500/20 text-green-400 py-3 rounded-2xl font-bold mb-4 flex items-center justify-center gap-2"><CheckCircle size={18} /> İşlem Başarılı</div>
-                                    <button onClick={() => setShowProgressModal(false)} className="text-slate-500 hover:text-white underline font-bold">Kapat</button>
-                                </motion.div>
-                            )}
+                            <button onClick={() => setShowProgressModal(false)} className="text-slate-500 hover:text-white underline font-bold">Arka Planda Devam Et</button>
                         </motion.div>
                     </div>
                 )}
             </AnimatePresence>
 
-            {/* Focus / Detail Window with LOGIN ASSISTANT */}
             <AnimatePresence>
                 {showFocusModal && focusSite && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-10 bg-slate-950/95 backdrop-blur-3xl">
@@ -320,73 +301,61 @@ const Dashboard = ({ user, onLogout }) => {
                                 ) : (
                                     <div className="text-center">
                                         <RefreshCw className="animate-spin text-primary-500 mx-auto mb-4" size={40} />
-                                        <p className="text-slate-600 font-bold uppercase tracking-widest text-xs">Bağlanılıyor...</p>
+                                        <p className="text-slate-600 font-bold uppercase tracking-widest text-xs tracking-[0.2em]">Hazırlanıyor...</p>
                                     </div>
                                 )}
                                 <div className="absolute top-8 left-8 bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-full border border-slate-700/50 flex items-center gap-2">
                                     <Shield size={14} className="text-primary-500" />
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Güvenli Bölge</span>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Güvenli Oturum</span>
                                 </div>
                             </div>
 
                             {/* Control Panel */}
                             <div className="w-full md:w-[420px] p-8 md:p-12 flex flex-col border-l border-slate-800 bg-slate-900/50 relative">
                                 <div className="absolute top-8 right-8 flex gap-2">
-                                    <button
-                                        onClick={() => handleDeleteSite(focusSite.id)}
-                                        className="p-3 bg-slate-800 rounded-full hover:bg-red-500/20 text-slate-400 hover:text-red-500 transition-colors"
-                                        title="Siteyi Sil"
-                                    >
-                                        <Trash2 size={20} />
-                                    </button>
-                                    <button onClick={() => setShowFocusModal(false)} className="p-3 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors">
-                                        <X size={20} />
-                                    </button>
+                                    <button onClick={() => handleDeleteSite(focusSite.id)} className="p-3 bg-slate-800 rounded-full hover:bg-red-500/20 text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={20} /></button>
+                                    <button onClick={() => setShowFocusModal(false)} className="p-3 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={20} /></button>
                                 </div>
 
                                 <div className="mb-10">
                                     <h2 className="text-4xl font-black gradient-text tracking-tighter mb-2">{focusSite.name}</h2>
-                                    <div className="flex items-center gap-2 text-slate-500 text-sm font-bold">
+                                    <div className="flex items-center gap-2 text-slate-500 text-sm font-bold truncate">
                                         <Globe size={14} /> {focusSite.url.replace(/^https?:\/\//, '')}
                                     </div>
                                 </div>
 
                                 <div className="space-y-8 flex-grow">
                                     {focusSite.requires_login ? (
-                                        <>
-                                            <div className="space-y-4">
-                                                <h4 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-4">Giriş Bilgileri</h4>
-                                                <div className="space-y-3">
-                                                    <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl flex items-center justify-between group">
-                                                        <div>
-                                                            <p className="text-[10px] text-slate-600 font-black mb-1">KULLANICI</p>
-                                                            <p className="font-mono text-slate-200">{focusSite.site_username}</p>
-                                                        </div>
-                                                        <button onClick={() => handleCopy(focusSite.site_username, 'user')} className="p-3 hover:bg-slate-900 rounded-xl text-slate-600 hover:text-primary-400 transition-all">
-                                                            {copyStatus['user'] ? <Check size={18} className="text-green-500" /> : <Copy size={18} />}
-                                                        </button>
+                                        <div className="space-y-4">
+                                            <h4 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-4">Otomatik Giriş Bilgileri</h4>
+                                            <div className="space-y-3">
+                                                <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl flex items-center justify-between">
+                                                    <div>
+                                                        <p className="text-[10px] text-slate-600 font-black mb-1 text-xs">KULLANICI</p>
+                                                        <p className="font-mono text-slate-200">{focusSite.site_username}</p>
                                                     </div>
-                                                    <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl flex items-center justify-between">
-                                                        <div>
-                                                            <p className="text-[10px] text-slate-600 font-black mb-1">ŞİFRE</p>
-                                                            <p className="font-mono text-slate-200">{showPasswordMap[focusSite.id] ? focusSite.site_password : '••••••••'}</p>
-                                                        </div>
-                                                        <div className="flex gap-1">
-                                                            <button onClick={(e) => togglePassword(e, focusSite.id)} className="p-3 hover:bg-slate-900 rounded-xl text-slate-600 hover:text-primary-400 transition-all">{showPasswordMap[focusSite.id] ? <EyeOff size={18} /> : <Eye size={18} />}</button>
-                                                            <button onClick={() => handleCopy(focusSite.site_password, 'pass')} className="p-3 hover:bg-slate-900 rounded-xl text-slate-600 hover:text-primary-400 transition-all">
-                                                                {copyStatus['pass'] ? <Check size={18} className="text-green-500" /> : <Copy size={18} />}
-                                                            </button>
-                                                        </div>
+                                                    <button onClick={() => handleCopy(focusSite.site_username, 'user')} className="p-3 hover:bg-slate-900 rounded-xl text-slate-600 transition-all">
+                                                        {copyStatus['user'] ? <Check size={18} className="text-green-500" /> : <Copy size={18} />}
+                                                    </button>
+                                                </div>
+                                                <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl flex items-center justify-between">
+                                                    <div>
+                                                        <p className="text-[10px] text-slate-600 font-black mb-1 text-xs">ŞİFRE</p>
+                                                        <p className="font-mono text-slate-200">{showPasswordMap[focusSite.id] ? focusSite.site_password : '••••••••'}</p>
+                                                    </div>
+                                                    <div className="flex gap-1">
+                                                        <button onClick={(e) => togglePassword(e, focusSite.id)} className="p-3 hover:bg-slate-900 rounded-xl text-slate-600 transition-all">{showPasswordMap[focusSite.id] ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+                                                        <button onClick={() => handleCopy(focusSite.site_password, 'pass')} className="p-3 hover:bg-slate-900 rounded-xl text-slate-600 transition-all">
+                                                            {copyStatus['pass'] ? <Check size={18} className="text-green-500" /> : <Copy size={18} />}
+                                                        </button>
                                                     </div>
                                                 </div>
                                             </div>
-
-
-                                        </>
+                                        </div>
                                     ) : (
                                         <div className="py-20 text-center border-2 border-dashed border-slate-800 rounded-[2.5rem]">
                                             <Globe className="mx-auto mb-4 text-slate-800" size={32} />
-                                            <p className="text-sm text-slate-600 font-bold">Bu site için giriş bilgisi yok.</p>
+                                            <p className="text-sm text-slate-600 font-bold">Hızlı Erişim Modu</p>
                                         </div>
                                     )}
                                 </div>
@@ -395,29 +364,28 @@ const Dashboard = ({ user, onLogout }) => {
                                     disabled={actionLoading === focusSite.id}
                                     onClick={async () => {
                                         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
                                         setActionLoading(focusSite.id);
-
-                                        // Uzak sunucuda linki yeni sekmede aç (kullanıcı görsün diye)
-                                        if (!isLocal) {
-                                            window.open(focusSite.url, '_blank');
-                                        }
-
+                                        setLiveFrame(null);
                                         try {
-                                            // Her durumda API'yi çağır (otomatik login tetiklensin)
                                             await api.get(`/sites/${focusSite.id}/open`);
-                                            // Yenile ki yeni screenshot/statü gelsin
-                                            fetchSites();
+                                            const interval = setInterval(async () => {
+                                                const res = await api.get('/sites');
+                                                const updatedSite = res.data.find(s => s.id === focusSite.id);
+                                                if (['Tamamlandı', 'Hata Oluştu', 'Form Bulunamadı'].includes(updatedSite.status)) {
+                                                    clearInterval(interval);
+                                                    fetchSites();
+                                                    setActionLoading(null);
+                                                    if (!isLocal) window.open(focusSite.url, '_blank');
+                                                }
+                                            }, 2000);
                                         } catch (err) {
-                                            if (isLocal) alert('Tarayıcı açılamadı');
-                                        } finally {
                                             setActionLoading(null);
                                         }
                                     }}
                                     className={`w-full ${actionLoading === focusSite.id ? 'bg-slate-800 text-white' : 'bg-white text-black'} hover:bg-slate-100 font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all mt-8 active:scale-95`}
                                 >
                                     {actionLoading === focusSite.id ? (
-                                        <>GİRİŞ YAPILIYOR... <Globe className="animate-spin" size={20} /></>
+                                        <>GİRİŞ YAPILIYOR... <RefreshCw className="animate-spin" size={20} /></>
                                     ) : (
                                         <>SİTEYİ AÇ (OTOMATİK GİRİŞ) <ExternalLink size={20} /></>
                                     )}
