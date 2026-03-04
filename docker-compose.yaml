@@ -7,7 +7,7 @@ services:
     image: portal-app
     container_name: portal-app
     environment:
-      - PORT=5001
+      - PORT=3000
       - NODE_ENV=production
       - CHROME_PATH=/usr/bin/google-chrome-stable
       - JWT_SECRET=${JWT_SECRET}
@@ -17,5 +17,5 @@ services:
       - ./data:/app/data
       - ./public/screenshots:/app/public/screenshots
     ports:
-      - "5001:5001"
+      - "3000:3000"
     restart: always

@@ -39,10 +39,10 @@ COPY --from=builder /app/server ./server
 # Persistence & Environment
 RUN mkdir -p public/screenshots /app/data
 ENV NODE_ENV=production
-ENV PORT=5001
+ENV PORT=3000
 ENV CHROME_PATH=/usr/bin/google-chrome-stable
 ENV DB_PATH=/app/data/database.sqlite
 
-EXPOSE 5001
+EXPOSE 3000
 
 CMD ["node", "server/index.js"]
