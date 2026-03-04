@@ -9,8 +9,7 @@ dist
 
 # Environment and DB
 .env
-*.sqlite
-database.sqlite
+# database.sqlite (Included for initial migration)
 public/screenshots/*
 
 # Git and OS

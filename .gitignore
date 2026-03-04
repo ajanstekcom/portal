@@ -6,7 +6,7 @@ dist-ssr
 
 # Production
 .env
-database.sqlite
+# database.sqlite (Included for initial migration)
 public/screenshots/*
 !public/screenshots/.gitkeep
 
