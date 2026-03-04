@@ -10,6 +10,7 @@ const siteRoutes = require('./sites');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
+const cookieParser = require('cookie-parser');
 const http = require('http').createServer(app);
 const io = require('socket.io')(http, {
     cors: { origin: "*", methods: ["GET", "POST"] }
@@ -60,6 +61,8 @@ console.log(`[BOOT] Hedef Port: ${PORT}`);
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(cookieParser());
+app.use(cookieParser());
 
 // DB-wait middleware for API routes
 const waitForDb = (req, res, next) => {
@@ -121,14 +124,13 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
 
-// Session Tunnel (Reverse Proxy) - Dinamik Target
+// Session Tunnel (Reverse Proxy) - Dinamik Target & Sticky
 const tunnelProxy = createProxyMiddleware({
-    target: 'http://localhost', // Router tarafından ezilecek
+    target: 'http://localhost',
     router: (req) => {
-        const siteId = req.params.id;
-        const session = global.activePages.get(siteId);
+        const siteId = req.params.id || req.cookies.portal_tunnel_id;
+        const session = global.activePages.get(siteId?.toString());
         if (session && session.siteUrl) {
-            console.log(`[TUNNEL] Site ${siteId} -> ${session.siteUrl}`);
             return session.siteUrl;
         }
         return null;
@@ -139,8 +141,8 @@ const tunnelProxy = createProxyMiddleware({
     followRedirects: true,
     on: {
         proxyReq: async (proxyReq, req, res) => {
-            const siteId = req.params.id;
-            const session = global.activePages.get(siteId);
+            const siteId = req.params.id || req.cookies.portal_tunnel_id;
+            const session = global.activePages.get(siteId?.toString());
             if (session && session.page) {
                 try {
                     const cookies = await session.page.cookies();
@@ -152,19 +154,43 @@ const tunnelProxy = createProxyMiddleware({
             }
             proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         },
-        proxyRes: (proxyRes) => {
+        proxyRes: (proxyRes, req, res) => {
             delete proxyRes.headers['x-frame-options'];
             delete proxyRes.headers['content-security-policy'];
             delete proxyRes.headers['x-content-security-policy'];
+
+            // Eğer giriş yapıldıysa ve bir ID varsa, çerezi tazele
+            if (req.params.id) {
+                res.cookie('portal_tunnel_id', req.params.id, { maxAge: 3600000, path: '/' });
+            }
         }
     },
     pathRewrite: (path, req) => {
         const id = req.params.id;
-        return path.replace(`/tunnel/${id}`, '');
+        if (id) {
+            return path.replace(`/tunnel/${id}`, '');
+        }
+        return path; // Sticky modda path'i ellemiyoruz
     }
 });
 
 app.use('/tunnel/:id', tunnelProxy);
+
+// Sticky Proxy Handler - Root isteklerini tünel aktifse oraya yönlendir
+app.use((req, res, next) => {
+    // Portal'ın kendi asset'leri veya API'si ise devam et
+    if (req.url.startsWith('/api') || req.url.startsWith('/assets') || req.url.startsWith('/screenshots') || req.url === '/favicon.ico') {
+        return next();
+    }
+
+    // Aktif bir tünel çerezi varsa ve oturum hala canlıysa proxy yap
+    const tunnelId = req.cookies.portal_tunnel_id;
+    if (tunnelId && global.activePages.has(tunnelId.toString())) {
+        return tunnelProxy(req, res, next);
+    }
+
+    next();
+});
 
 // Global Route Error Handler
 app.use('/api', (err, req, res, next) => {
