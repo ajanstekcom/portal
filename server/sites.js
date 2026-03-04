@@ -109,11 +109,16 @@ async function performSmartLogin(page, site, id = null) {
             const decryptedPassword = decrypt(site.site_password);
             await passEl.type(decryptedPassword || '', { delay: 50 });
 
+            await updateStatus(id, 'Giriş Yapılıyor...');
             console.log("[LOGIN] Giriş yapılıyor...");
             await page.keyboard.press('Enter');
-            await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {
-                console.log("[LOGIN] Navigasyon zaman aşımına uğradı, devam ediliyor.");
-            });
+            // Canlı akışı başlat
+            const streamInterval = setInterval(() => broadcastFrame(page, id), 1000);
+            await page.waitForNavigation({ waitUntil: 'networkidle1', timeout: 10000 }).catch(() => { });
+
+            if (typeof streamInterval !== 'undefined') clearInterval(streamInterval);
+            await broadcastFrame(page, id);
+            await updateStatus(id, 'Tamamlandı');
             console.log("[LOGIN] İşlem tamamlandı.");
         } else {
             console.log("[LOGIN] Form elemanları bulunamadı (Username/Password inputları yok).");
