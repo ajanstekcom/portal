@@ -153,9 +153,10 @@ async function openInteractiveBrowser(site) {
         browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${port}`, defaultViewport: null });
     } catch (e) {
         // Yoksa yeni aç
+        const isLinux = process.platform === 'linux';
         browser = await puppeteer.launch({
             executablePath: EXECUTABLE_PATH,
-            headless: false,
+            headless: isLinux ? "new" : false, // Linux sunucularda ekran olmadığı için headless zorunlu
             userDataDir: profilePath,
             defaultViewport: null,
             ignoreDefaultArgs: ['--enable-automation'], // Otomasyon uyarısını bir miktar azaltır
@@ -164,7 +165,10 @@ async function openInteractiveBrowser(site) {
                 `--remote-debugging-port=${port}`,
                 '--no-first-run',
                 '--no-default-browser-check',
-                '--new-window' // Her siteyi yeni pencerede açmaya zorlar
+                '--new-window',
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage'
             ]
         });
     }
@@ -197,7 +201,12 @@ async function takeSmartScreenshot(id, url) {
         browser = await puppeteer.launch({
             executablePath: EXECUTABLE_PATH,
             headless: "new",
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu'
+            ]
         });
 
         const page = await browser.newPage();
