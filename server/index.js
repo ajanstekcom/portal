@@ -95,21 +95,15 @@ process.on('unhandledRejection', (reason, promise) => {
 
 let dbInitialized = false;
 
-// Initialize DB and start server
-const startServer = async () => {
-    // Start listening immediately to avoid 504 Gateway Timeout from proxy
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log(`[${new Date().toISOString()}] Server dinlemede: ${PORT}`);
-    });
+// Start server immediately
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[BOOT] Server ${PORT} portunda dinliyor (0.0.0.0)`);
 
-    try {
-        console.log('[BOOT] Veritabanı başlatılıyor...');
-        await initDb();
+    // Initialize DB in background
+    initDb().then(() => {
         dbInitialized = true;
-        console.log('[BOOT] Sistem ve Veritabanı hazır.');
-    } catch (err) {
-        console.error('[CRITICAL] Veritabanı başlatılamadı:', err);
-    }
-};
-
-startServer();
+        console.log('[BOOT] Veritabanı başarıyla hazırlandı.');
+    }).catch(err => {
+        console.error('[CRITICAL] Veritabanı başlatma hatası:', err);
+    });
+});
