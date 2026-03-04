@@ -189,14 +189,34 @@ app.use('/tunnel/:id', tunnelProxy);
 
 // Sticky Proxy Handler - Root isteklerini tünel aktifse oraya yönlendir
 app.use((req, res, next) => {
-    // Portal'ın kendi asset'leri veya API'si ise devam et
-    if (req.url.startsWith('/api') || req.url.startsWith('/assets') || req.url.startsWith('/screenshots') || req.url === '/favicon.ico') {
+    // API veya favicon her zaman Portal'ındır
+    if (req.url.startsWith('/api') || req.url === '/favicon.ico') {
         return next();
     }
 
-    // Aktif bir tünel çerezi varsa ve oturum hala canlıysa proxy yap
+    // Aktif bir tünel var mı bak
     const tunnelId = req.cookies.portal_tunnel_id;
-    if (tunnelId && global.activePages.has(tunnelId.toString())) {
+    const isTunnelActive = tunnelId && global.activePages.has(tunnelId.toString());
+
+    // Eğer bu bir statik dosya isteğiyse (assets, screenshots vb)
+    if (req.url.startsWith('/assets/') || req.url.startsWith('/screenshots/')) {
+        const fullPath = req.url.startsWith('/screenshots/')
+            ? path.join(screenshotsPath, req.url.replace('/screenshots/', ''))
+            : path.join(distPath, req.url);
+
+        // Eğer dosya localde varsa Portal'ındır, serve et
+        if (fs.existsSync(fullPath)) {
+            return next();
+        }
+
+        // Localde yoksa ve tünel aktifse, bu muhtemelen tünellenen sitenin asset'idir
+        if (isTunnelActive) {
+            return tunnelProxy(req, res, next);
+        }
+    }
+
+    // Diğer tüm durumlar (HTML istekleri vb)
+    if (isTunnelActive) {
         return tunnelProxy(req, res, next);
     }
 
