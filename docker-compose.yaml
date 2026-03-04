@@ -7,7 +7,7 @@ services:
     image: portal-app
     container_name: portal-app
     environment:
-      - PORT=3000
+      - PORT=5173
       - NODE_ENV=production
       - CHROME_PATH=/usr/bin/google-chrome-stable
       - JWT_SECRET=${JWT_SECRET}
@@ -17,7 +17,7 @@ services:
       - ./data:/app/data
       - ./public/screenshots:/app/public/screenshots
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5173/api/health"]
       interval: 10s
       timeout: 5s
       retries: 5

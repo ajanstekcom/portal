@@ -44,10 +44,10 @@ COPY package*.json ./
 # Persistence & Environment
 RUN mkdir -p public/screenshots /app/data
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=5173
 ENV CHROME_PATH=/usr/bin/google-chrome-stable
 ENV DB_PATH=/app/data/database.sqlite
 
-EXPOSE 3000
+EXPOSE 5173
 
 CMD ["node", "server/index.js"]
