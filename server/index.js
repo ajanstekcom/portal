@@ -63,7 +63,12 @@ app.get('/api/health', (req, res) => {
     res.json({
         status: dbInitialized ? 'ok' : 'initializing',
         timestamp: new Date(),
-        uptime: process.uptime()
+        uptime: process.uptime(),
+        env: {
+            isDesktop: process.platform === 'darwin' || process.platform === 'win32',
+            platform: process.platform,
+            node_env: process.env.NODE_ENV
+        }
     });
 });
 app.use('/api/auth', authRoutes);

@@ -12,6 +12,7 @@ const Dashboard = ({ user, onLogout }) => {
     const [actionLoading, setActionLoading] = useState(null);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showProgressModal, setShowProgressModal] = useState(false);
+    const [serverEnv, setServerEnv] = useState({ isDesktop: false });
     const [selectedSiteId, setSelectedSiteId] = useState(null);
     const [showFocusModal, setShowFocusModal] = useState(false);
     const [focusSite, setFocusSite] = useState(null);
@@ -45,6 +46,17 @@ const Dashboard = ({ user, onLogout }) => {
             setLoading(false);
         }
     };
+
+    const fetchHealth = async () => {
+        try {
+            const res = await api.get('/health');
+            setServerEnv(res.data.env);
+        } catch (e) { }
+    };
+
+    useEffect(() => {
+        fetchHealth();
+    }, []);
 
     useEffect(() => {
         fetchSites();
@@ -363,7 +375,7 @@ const Dashboard = ({ user, onLogout }) => {
                                 <button
                                     disabled={actionLoading === focusSite.id}
                                     onClick={async () => {
-                                        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                                        const isLocal = serverEnv.isDesktop;
                                         setActionLoading(focusSite.id);
                                         setLiveFrame(null);
                                         try {
@@ -375,7 +387,14 @@ const Dashboard = ({ user, onLogout }) => {
                                                     clearInterval(interval);
                                                     fetchSites();
                                                     setActionLoading(null);
-                                                    if (!isLocal) window.open(focusSite.url, '_blank');
+
+                                                    // Sadece uzak sunucuda (Linux vb) sekme aç
+                                                    if (!isLocal) {
+                                                        window.open(focusSite.url, '_blank');
+                                                    } else {
+                                                        // Yerelde zaten bot penceresi açıldı, kullanıcıyı oraya yönlendir
+                                                        alert('Otomatik giriş bot penceresinde başarıyla yapıldı! Lütfen o pencereyi kontrol et.');
+                                                    }
                                                 }
                                             }, 2000);
                                         } catch (err) {
