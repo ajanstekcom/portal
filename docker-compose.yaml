@@ -14,7 +14,7 @@ services:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - PORTAL_URL=https://portal.ajanstek.com
     volumes:
-      - ./server/database.sqlite:/app/server/database.sqlite
+      - ./data:/app/data
       - ./public/screenshots:/app/public/screenshots
     ports:
       - "5001:5001"
