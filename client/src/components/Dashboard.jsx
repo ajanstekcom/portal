@@ -411,6 +411,35 @@ const Dashboard = ({ user, onLogout, onOpenSite }) => {
                                         <>SİTEYİ AÇ (OTOMATİK GİRİŞ) <ExternalLink size={20} /></>
                                     )}
                                 </button>
+                                <div className="space-y-4 mt-4">
+                                    <button
+                                        onClick={async () => {
+                                            setActionLoading(focusSite.id);
+                                            try {
+                                                await api.get(`/sites/${focusSite.id}/open`);
+                                                // Doğrudan tüneli yeni sekmede aç (SPA UI'ı bypass et)
+                                                const tunnelUrl = `${window.location.origin}/tunnel/${focusSite.id}`;
+                                                window.open(tunnelUrl, '_blank');
+                                            } catch (e) {
+                                                alert('Oturum başlatılamadı');
+                                            } finally {
+                                                setActionLoading(null);
+                                            }
+                                        }}
+                                        disabled={actionLoading === focusSite.id}
+                                        className="w-full bg-primary-600 hover:bg-primary-500 text-white py-5 rounded-3xl font-black text-lg shadow-2xl shadow-primary-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-3 group"
+                                    >
+                                        {actionLoading === focusSite.id ? (
+                                            <RefreshCw className="animate-spin" size={24} />
+                                        ) : (
+                                            <>
+                                                <Lock size={24} className="group-hover:scale-110 transition-transform" />
+                                                GİRİŞ YAP VE AÇ
+                                            </>
+                                        )}
+                                    </button>
+                                    <p className="text-[10px] text-slate-500 text-center font-bold uppercase tracking-widest">Oturum çerezleri otomatik olarak aktarılacaktır</p>
+                                </div>
                             </div>
                         </motion.div>
                     </div>

@@ -84,17 +84,25 @@ const waitForDb = (req, res, next) => {
 // Apply DB-wait to all /api routes
 app.use('/api', waitForDb);
 
-const distPath = path.join(__dirname, '../client/dist');
-const isProduction = process.env.NODE_ENV === 'production';
-
-if (fs.existsSync(distPath)) {
-    console.log(`[BOOT] Frontend dosyaları bulundu: ${distPath}`);
-} else if (isProduction) {
-    console.warn(`[BOOT] UYARI: Frontend build (dist) bulunamadı! Yol: ${distPath}`);
-}
-
 // Static files for screenshots and frontend
-app.use('/screenshots', express.static(path.join(__dirname, '../public/screenshots')));
+const screenshotsPath = path.join(__dirname, '../public/screenshots');
+const distPath = path.join(__dirname, '../client/dist');
+
+// Middleware to log static requests and failures
+app.use((req, res, next) => {
+    if (req.url.startsWith('/assets/') || req.url.startsWith('/screenshots/')) {
+        const fullPath = req.url.startsWith('/screenshots/')
+            ? path.join(screenshotsPath, req.url.replace('/screenshots/', ''))
+            : path.join(distPath, req.url);
+
+        if (!fs.existsSync(fullPath)) {
+            console.warn(`[STATIC 404] File missing: ${req.url} -> ${fullPath}`);
+        }
+    }
+    next();
+});
+
+app.use('/screenshots', express.static(screenshotsPath));
 app.use(express.static(distPath));
 
 // Routes
@@ -170,12 +178,18 @@ app.use('/api', (err, req, res, next) => {
 
 // Catch-all for SPA - Express 5.x uyumluluğu için Regex kullanıyoruz
 app.get(/.*/, (req, res) => {
-    // Statik dosya isteğiyse (nokta içeriyorsa) ve bulunamadıysa 404 dön
-    if (req.path.includes('.') && !req.path.endsWith('.html')) {
-        return res.status(404).end();
+    // API veya Statik dosya isteğiyse (. noktası içeriyorsa) ve buraya düştüyse direkt 404
+    if (req.url.startsWith('/api/') || (req.path.includes('.') && !req.path.endsWith('.html'))) {
+        console.warn(`[ROUTE 404] Statik veya API hatası: ${req.url}`);
+        return res.status(404).json({ error: 'Not Found', path: req.url });
     }
+
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
+        // Cache busting for index.html to ensure new asset hashes are picked up
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
         res.sendFile(indexPath);
     } else {
         res.status(404).send('Frontend build results not found. Please run build script.');
