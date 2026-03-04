@@ -281,7 +281,7 @@ const Dashboard = ({ user, onLogout }) => {
                             {/* Visual Preview */}
                             <div className="flex-grow bg-slate-950 p-4 overflow-hidden flex items-center justify-center relative min-h-[400px]">
                                 {focusSite.screenshot_path ? (
-                                    <img src={`http://localhost:5001${focusSite.screenshot_path}`} alt={focusSite.name} className="w-full h-full object-contain rounded-2xl shadow-2xl" />
+                                    <img src={focusSite.screenshot_path} alt={focusSite.name} className="w-full h-full object-contain rounded-2xl shadow-2xl" />
                                 ) : (
                                     <div className="text-center">
                                         <RefreshCw className="animate-spin text-primary-500 mx-auto mb-4" size={40} />
