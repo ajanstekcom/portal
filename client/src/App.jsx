@@ -2,12 +2,18 @@ import React, { useState, useEffect } from 'react';
 import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
+import SiteView from './components/SiteView';
 
 function App() {
     const [user, setUser] = useState(null);
     const [showRegister, setShowRegister] = useState(false);
+    const [viewingSiteId, setViewingSiteId] = useState(null);
 
     useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const viewId = urlParams.get('view');
+        if (viewId) setViewingSiteId(viewId);
+
         const token = localStorage.getItem('token');
         const username = localStorage.getItem('username');
         if (token && username) {
@@ -22,7 +28,13 @@ function App() {
     };
 
     if (user) {
-        return <Dashboard user={user} onLogout={handleLogout} />;
+        if (viewingSiteId) {
+            return <SiteView siteId={viewingSiteId} user={user} onExit={() => {
+                window.history.pushState({}, '', '/');
+                setViewingSiteId(null);
+            }} />;
+        }
+        return <Dashboard user={user} onLogout={handleLogout} onOpenSite={(id) => setViewingSiteId(id)} />;
     }
 
     return (

@@ -6,7 +6,7 @@ import { io } from 'socket.io-client';
 
 const socket = io(window.location.hostname === 'localhost' ? 'http://localhost:3000' : window.location.origin);
 
-const Dashboard = ({ user, onLogout }) => {
+const Dashboard = ({ user, onLogout, onOpenSite }) => {
     const [sites, setSites] = useState([]);
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(null);
@@ -415,7 +415,8 @@ const Dashboard = ({ user, onLogout }) => {
 
                                                     // Sadece uzak sunucuda (Linux vb) sekme aç
                                                     if (!isLocal) {
-                                                        window.open(focusSite.url, '_blank');
+                                                        window.open(`/?view=${focusSite.id}`, '_blank');
+                                                        setActionLoading(null);
                                                     } else {
                                                         // Yerelde zaten bot penceresi açıldı, kullanıcıyı oraya yönlendir
                                                         alert('Otomatik giriş bot penceresinde başarıyla yapıldı! Lütfen o pencereyi kontrol et.');
