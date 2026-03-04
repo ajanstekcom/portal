@@ -170,6 +170,15 @@ const tunnelProxy = createProxyMiddleware({
             delete proxyRes.headers['content-security-policy'];
             delete proxyRes.headers['x-content-security-policy'];
 
+            // MIME Type Safety: CSS/JS dosyaları için HTML geliyorsa (404 maskelemesi) engelle
+            const contentType = proxyRes.headers['content-type'];
+            const isAsset = req.url.split('?')[0].match(/\.(css|js)$/);
+            if (isAsset && contentType && contentType.includes('text/html')) {
+                console.warn(`[PROXY MIME GUARD] Blocking HTML response for asset: ${req.url}`);
+                proxyRes.statusCode = 404;
+                // Responsu kesmek için head'i vaktinden önce yazabiliriz ama proxyRes'teyiz
+            }
+
             // Redirect Rewriting: Sunucu seni dışarı (başka domaine) atmaya çalışırsa yakala
             if (proxyRes.headers.location) {
                 const siteId = req.params.id || req.cookies.portal_tunnel_id;
@@ -178,8 +187,6 @@ const tunnelProxy = createProxyMiddleware({
                     const targetUrl = new URL(session.siteUrl);
                     const locationUrl = proxyRes.headers.location;
 
-                    // Eğer redirect hedefi bizim tünellediğimiz sitenin kendisiyse (absolute link)
-                    // Onu portal domainine çevir
                     if (locationUrl.startsWith(targetUrl.origin)) {
                         proxyRes.headers.location = locationUrl.replace(targetUrl.origin, '');
                         console.log(`[REDIRECT REWRITE] ${locationUrl} -> ${proxyRes.headers.location}`);
@@ -224,6 +231,15 @@ app.use((req, res, next) => {
         // Eğer dosya localde varsa Portal'ındır, serve et
         if (fs.existsSync(fullPath)) {
             return next();
+        }
+
+        // KRİTİK: Eğer referer portalın kendisi (dashboard) ise ve dosya yoksa tünele sorma!
+        // Bu durum Portal'ın kendi eski asset'lerini tünelde aramasını engeller (MIME hatasını önler).
+        const referer = req.headers.referer || '';
+        const isFromPortalUI = !referer.includes('/tunnel/') && !referer.includes('/nakit-beyan'); // Örnek olarak tünel yollarını dışla
+
+        if (isFromPortalUI && req.url.startsWith('/assets/')) {
+            return res.status(404).type('text/plain').send('Portal asset not found');
         }
 
         // Localde yoksa ve tünel aktifse, bu muhtemelen tünellenen sitenin asset'idir
