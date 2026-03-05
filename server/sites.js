@@ -174,6 +174,14 @@ router.delete('/:id', async (req, res) => {
 // --- ANA MANTIĞIN ÇALIŞTIĞI YER ---
 
 async function openInteractiveBrowser(site) {
+    // FIXED: Early session registration to prevent race condition with tunnel proxy
+    global.activePages.set(site.id.toString(), {
+        status: 'loading',
+        initialUrl: site.url,
+        siteUrl: site.url,
+        lastActivity: Date.now()
+    });
+
     let browser;
     const port = 9100 + (parseInt(site.id) % 500);
     // Profil yolundan Date.now()'u çıkardık, böylece oturumlar (cookie) kalıcı olur.
