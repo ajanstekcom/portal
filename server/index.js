@@ -262,10 +262,9 @@ app.get('/api/sites/:id/credentials', async (req, res) => {
 
 app.use('/api/sites', siteRoutes);
 
-// Global Tunnel Fallback (for root-relative assets from target sites)
+// Global Tunnel Fallback (for root-relative assets)
 app.use((req, res, next) => {
     const portalTunnelId = req.cookies.portal_tunnel_id;
-    // Bypass if: No session, internal routes, or dashboard root
     if (!portalTunnelId ||
         req.url.startsWith('/tunnel/') ||
         req.url === '/' ||
@@ -275,11 +274,21 @@ app.use((req, res, next) => {
         return next();
     }
 
-    // Proxy root-relative requests to the active tunnel
-    return tunnelProxy(req, res, next);
+    // SADECE aktif bir oturum varsa proxy'ye gönder
+    if (global.activePages.has(portalTunnelId.toString())) {
+        return tunnelProxy(req, res, next);
+    }
+    next();
 });
 
-app.use('/tunnel/:id', tunnelProxy);
+// Ana tünel endpoint'i için oturum kontrolü
+app.use('/tunnel/:id', (req, res, next) => {
+    const siteId = req.params.id;
+    if (!global.activePages.has(siteId.toString())) {
+        return res.status(404).send('<!DOCTYPE html><html><body style="background:#0f172a;color:#94a3b8;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0"><div><h2>Oturum Zaman Aşımına Uğradı</h2><p>Lütfen sayfayı kapatıp Dashboard üzerinden tekrar açın.</p></div></body></html>');
+    }
+    next();
+}, tunnelProxy);
 
 // Global Route Error Handler
 app.use('/api', (err, req, res, next) => {
