@@ -17,42 +17,119 @@ const io = require('socket.io')(http, {
 });
 global.io = io;
 
+// Session Tunnel (Reverse Proxy)
+const tunnelProxy = createProxyMiddleware({
+    target: 'http://localhost',
+    router: (req) => {
+        const siteId = req.params.id || req.cookies.portal_tunnel_id;
+        if (!siteId) return null;
+        const session = global.activePages.get(siteId.toString());
+        return session?.siteUrl || null;
+    },
+    changeOrigin: true,
+    secure: false,
+    autoRewrite: true,
+    followRedirects: true,
+    on: {
+        proxyReq: async (proxyReq, req, res) => {
+            const siteId = req.params.id || req.cookies.portal_tunnel_id;
+            const session = global.activePages.get(siteId?.toString());
+            if (session && session.page) {
+                try {
+                    const cookies = await session.page.cookies();
+                    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                    proxyReq.setHeader('Cookie', cookieHeader);
+                } catch (e) {
+                    console.error("[TUNNEL COOKIE ERROR]", e.message);
+                }
+            }
+            proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+            proxyReq.setHeader('accept-encoding', 'identity'); // Disable compression for injection
+        },
+        proxyRes: (proxyRes, req, res) => {
+            const siteId = req.params.id || req.cookies.portal_tunnel_id;
+            const contentType = proxyRes.headers['content-type'] || '';
+
+            // Strip security headers always
+            delete proxyRes.headers['x-frame-options'];
+            delete proxyRes.headers['content-security-policy'];
+            delete proxyRes.headers['x-content-security-policy'];
+            delete proxyRes.headers['content-security-policy-report-only'];
+
+            if (contentType.includes('text/html') && siteId) {
+                // HTML Injection logic
+                let body = Buffer.from([]);
+                proxyRes.on('data', (chunk) => { body = Buffer.concat([body, chunk]); });
+                proxyRes.on('end', async () => {
+                    let html = body.toString('utf8');
+                    const injectionScript = `
+                        <script>
+                            (function() {
+                                async function tryLogin() {
+                                    try {
+                                        const res = await fetch('/api/sites/${siteId}/credentials', {
+                                            headers: { 'X-Portal-Internal': 'true' }
+                                        });
+                                        if (!res.ok) return;
+                                        const { username, password } = await res.json();
+                                        if (!username || !password) return;
+
+                                        const userSelectors = ['input[type="text"]', 'input[type="email"]', 'input[name*="user" i]', 'input[id*="user" i]', 'input[placeholder*="eposta" i]', 'input[placeholder*="username" i]'];
+                                        const passSelectors = ['input[type="password"]', 'input[name*="pass" i]', 'input[id*="id" i]', 'input[placeholder*="şifre" i]', 'input[placeholder*="password" i]'];
+
+                                        let userInp, passInp;
+                                        for (const s of userSelectors) { if (userInp = document.querySelector(s)) break; }
+                                        for (const s of passSelectors) { if (passInp = document.querySelector(s)) break; }
+
+                                        if (userInp && passInp && !userInp.value) {
+                                            userInp.value = username;
+                                            passInp.value = password;
+                                            userInp.dispatchEvent(new Event('input', { bubbles: true }));
+                                            passInp.dispatchEvent(new Event('input', { bubbles: true }));
+                                            setTimeout(() => {
+                                                const form = userInp.closest('form');
+                                                if (form) form.submit();
+                                                else passInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                                            }, 1000);
+                                        }
+                                    } catch (e) { console.error("[PORTAL] Injection error:", e); }
+                                }
+                                if (document.readyState === 'complete') tryLogin();
+                                else window.addEventListener('load', tryLogin);
+                            })();
+                        </script>
+                    `;
+                    if (html.includes('</head>')) html = html.replace('</head>', injectionScript + '</head>');
+                    else if (html.includes('<body>')) html = html.replace('<body>', '<body>' + injectionScript);
+                    else html = injectionScript + html;
+
+                    const modifiedBody = Buffer.from(html, 'utf8');
+                    res.writeHead(proxyRes.statusCode, {
+                        ...proxyRes.headers,
+                        'content-length': modifiedBody.length,
+                        'content-type': 'text/html; charset=utf-8'
+                    });
+                    res.end(modifiedBody);
+                });
+            } else {
+                // FIXED: Direct piping for non-HTML (JS, CSS, etc.) to preserve MIME types
+                res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                proxyRes.pipe(res);
+            }
+        }
+    },
+    selfHandleResponse: true,
+    pathRewrite: (path, req) => {
+        const id = req.params.id;
+        return id ? path.replace(`/tunnel/${id}`, '') : path;
+    }
+});
+
 // VNC Page Registry
 global.activePages = new Map();
 
 io.on('connection', (socket) => {
     console.log(`[SOCKET] Yeni bağlantı: ${socket.id}`);
-
-    socket.on('site-interaction', async (data) => {
-        const { id, type, x, y, width, height, text, key } = data;
-        const session = global.activePages.get(id.toString());
-        if (!session || !session.page) return;
-
-        try {
-            if (type === 'click') {
-                const viewport = session.page.viewport() || { width: 1280, height: 720 };
-                const realX = Math.round((x / width) * viewport.width);
-                const realY = Math.round((y / height) * viewport.height);
-                await session.page.mouse.click(realX, realY);
-            } else if (type === 'type') {
-                await session.page.keyboard.type(text, { delay: 20 });
-            } else if (type === 'key') {
-                await session.page.keyboard.press(key);
-            } else if (type === 'refresh') {
-                await session.page.reload({ waitUntil: 'networkidle2' });
-            }
-
-            // Etkileşim sonrası hemen bir kare gönder
-            const { broadcastFrame } = require('./sites_helpers'); // Dairesel bağımlılığı önlemek için
-            await broadcastFrame(session.page, id);
-        } catch (e) {
-            console.error(`[INTERACTION ERROR] Site ${id}:`, e.message);
-        }
-    });
-
-    socket.on('disconnect', () => {
-        console.log(`[SOCKET] Ayrıldı: ${socket.id}`);
-    });
 });
 
 const PORT = process.env.PORT || 3000;
@@ -125,6 +202,30 @@ app.get('/api/health', (req, res) => {
 });
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
+
+// Internal usage for injected script to get credentials
+app.get('/api/sites/:id/credentials', async (req, res) => {
+    // Only allow requests from our tunnel or internal referers
+    if (req.headers['x-portal-internal'] !== 'true' && !req.headers.referer?.includes('/tunnel/')) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    try {
+        const { db } = require('./db');
+        const { decrypt } = require('./utils/crypto');
+        const site = await db('sites').where({ id: req.params.id }).first();
+        if (!site || !site.requires_login) return res.status(404).json({ error: 'Not found' });
+
+        res.json({
+            username: site.site_username,
+            password: decrypt(site.site_password)
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.use('/tunnel/:id', tunnelProxy);
 
 // Global Route Error Handler
 app.use('/api', (err, req, res, next) => {

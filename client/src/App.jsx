@@ -8,18 +8,12 @@ function App() {
     const [user, setUser] = useState(null);
     const [showRegister, setShowRegister] = useState(false);
     const [viewingSiteId, setViewingSiteId] = useState(null);
-    const [isTunnelMode, setIsTunnelMode] = useState(false);
 
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
         const viewId = urlParams.get('view');
-        const tunnelId = urlParams.get('tunnel');
 
         if (viewId) setViewingSiteId(viewId);
-        if (tunnelId) {
-            setViewingSiteId(tunnelId);
-            setIsTunnelMode(true);
-        }
 
         const token = localStorage.getItem('token');
         const username = localStorage.getItem('username');

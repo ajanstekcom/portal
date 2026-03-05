@@ -377,7 +377,6 @@ const Dashboard = ({ user, onLogout, onOpenSite }) => {
                                     disabled={actionLoading === focusSite.id}
                                     onClick={async () => {
                                         setActionLoading(focusSite.id);
-                                        setLiveFrame(null);
                                         try {
                                             await api.get(`/sites/${focusSite.id}/open`);
                                             onOpenSite(focusSite.id);
@@ -392,13 +391,13 @@ const Dashboard = ({ user, onLogout, onOpenSite }) => {
                                     {actionLoading === focusSite.id ? (
                                         <>BAŞLATILIYOR... <RefreshCw className="animate-spin" size={20} /></>
                                     ) : (
-                                        <>SİTEYİ AÇ VE ETKİLEŞİM KUR <Monitor size={20} /></>
+                                        <>SİTEYİ AÇ VE OTOMATİK GİRİŞ YAP <Lock size={20} /></>
                                     )}
                                 </button>
                                 <div className="mt-4">
                                     <p className="text-[10px] text-slate-500 text-center font-bold uppercase tracking-widest leading-normal">
-                                        Otomatik giriş arka planda yapılır.<br />
-                                        Ekran üzerinden tıklayarak ve yazarak etkileşim kurabilirsiniz.
+                                        Site güvenli bir tünel üzerinden iframe içine gömülerek açılır.<br />
+                                        Otomatik giriş scripti arka planda devreye girecektir.
                                     </p>
                                 </div>
                             </div>

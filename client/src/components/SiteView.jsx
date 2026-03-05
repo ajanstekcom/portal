@@ -29,60 +29,24 @@ const SiteView = ({ siteId, user, onExit }) => {
     }, [siteId]);
 
     useEffect(() => {
-        const frameEvent = `site-frame-${siteId}`;
         const statusEvent = `site-status-${siteId}`;
-
-        socket.on(frameEvent, (data) => {
-            setLiveFrame(`data:image/jpeg;base64,${data.image}`);
-        });
         socket.on(statusEvent, (data) => {
             setStatus(data.status);
         });
-
         return () => {
-            socket.off(frameEvent);
             socket.off(statusEvent);
         };
     }, [siteId]);
 
-    const handleInteraction = (e, type, extra = {}) => {
-        if (!siteId || !containerRef.current) return;
-
-        const rect = containerRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        socket.emit('site-interaction', {
-            id: siteId,
-            type,
-            x: Math.round(x),
-            y: Math.round(y),
-            width: Math.round(rect.width),
-            height: Math.round(rect.height),
-            ...extra
-        });
-    };
-
-    const handleKeyDown = (e) => {
-        if (!siteId) return;
-        // Prevent default browser behavior for shortcuts like Ctrl+R or F5
-        if (['F5', 'r'].includes(e.key) && (e.ctrlKey || e.metaKey)) e.preventDefault();
-
-        socket.emit('site-interaction', {
-            id: siteId,
-            type: 'key',
-            key: e.key
-        });
+    const refreshPage = () => {
+        const iframe = document.getElementById('tunnel-iframe');
+        if (iframe) iframe.src = iframe.src;
     };
 
     if (!site) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white">Yükleniyor...</div>;
 
     return (
-        <div
-            className="h-screen bg-slate-950 flex flex-col text-white overflow-hidden font-sans outline-none"
-            tabIndex="0"
-            onKeyDown={handleKeyDown}
-        >
+        <div className="h-screen bg-slate-950 flex flex-col text-white overflow-hidden font-sans">
             {/* Browser Header Overlay */}
             <div className="bg-slate-900 border-b border-slate-800 p-3 flex items-center gap-4 shadow-2xl z-10">
                 <div className="flex gap-2">
@@ -104,52 +68,32 @@ const SiteView = ({ siteId, user, onExit }) => {
                 </div>
 
                 <div className="flex items-center gap-2 mr-2">
-                    <button
-                        onClick={() => socket.emit('site-interaction', { id: siteId, type: 'refresh' })}
-                        className="p-2.5 hover:bg-slate-800 rounded-xl text-slate-400 bg-slate-950/50 border border-slate-800"
-                    >
+                    <button onClick={refreshPage} className="p-2.5 hover:bg-slate-800 rounded-xl text-slate-400 bg-slate-950/50 border border-slate-800">
                         <RotateCw size={18} />
                     </button>
-                    <a
-                        href={site.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-2 bg-primary-600 hover:bg-primary-500 px-4 py-2.5 rounded-xl font-bold text-xs transition-all"
-                    >
+                    <a href={site.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-primary-600 hover:bg-primary-500 px-4 py-2.5 rounded-xl font-bold text-xs transition-all">
                         <ExternalLink size={14} /> Sitede Gör
                     </a>
                 </div>
             </div>
 
-            {/* Browser Viewport (Interactive Screenshot Area) */}
-            <div
-                ref={containerRef}
-                className="flex-grow bg-slate-900 relative overflow-hidden cursor-crosshair"
-                onMouseDown={(e) => handleInteraction(e, 'click')}
-            >
-                {liveFrame ? (
-                    <img
-                        src={liveFrame}
-                        className="w-full h-full object-contain bg-slate-900 select-none"
-                        alt="Remote Session"
-                        draggable="false"
-                    />
-                ) : site.screenshot_path ? (
-                    <img
-                        src={site.screenshot_path}
-                        className="w-full h-full object-contain opacity-50 select-none"
-                        alt="Loading..."
-                        draggable="false"
-                    />
-                ) : null}
+            {/* Browser Viewport */}
+            <div className="flex-grow bg-white relative overflow-hidden">
+                <iframe
+                    id="tunnel-iframe"
+                    src={`/tunnel/${siteId}`}
+                    className="w-full h-full border-none bg-white"
+                    title="Remote Session"
+                    sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-scripts allow-same-origin"
+                />
 
                 {/* Status Overlay (Fade out if connected) */}
-                {(!liveFrame || status !== 'Tamamlandı') && (
-                    <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm flex flex-col items-center justify-center gap-8 z-20 pointer-events-none">
+                {status !== 'Tamamlandı' && (
+                    <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl flex flex-col items-center justify-center gap-8 z-20">
                         <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin shadow-[0_0_30px_-5px_rgba(59,130,246,0.5)]"></div>
                         <div className="text-center">
                             <h2 className="text-2xl font-black mb-2 tracking-tighter uppercase">{status}</h2>
-                            <p className="text-slate-500 text-sm font-medium">Uzaktaki tarayıcıya bağlanılıyor...</p>
+                            <p className="text-slate-500 text-sm font-medium">Bütün bilgileriniz güvenle aktarılıyor...</p>
                         </div>
                     </div>
                 )}
