@@ -3,16 +3,24 @@ import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import SiteView from './components/SiteView';
+import TunnelView from './components/TunnelView';
 
 function App() {
     const [user, setUser] = useState(null);
     const [showRegister, setShowRegister] = useState(false);
     const [viewingSiteId, setViewingSiteId] = useState(null);
+    const [isTunnelMode, setIsTunnelMode] = useState(false);
 
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
         const viewId = urlParams.get('view');
+        const tunnelId = urlParams.get('tunnel');
+
         if (viewId) setViewingSiteId(viewId);
+        if (tunnelId) {
+            setViewingSiteId(tunnelId);
+            setIsTunnelMode(true);
+        }
 
         const token = localStorage.getItem('token');
         const username = localStorage.getItem('username');
@@ -29,12 +37,26 @@ function App() {
 
     if (user) {
         if (viewingSiteId) {
+            if (isTunnelMode) {
+                return <TunnelView siteId={viewingSiteId} onExit={() => {
+                    const url = new URL(window.location);
+                    url.searchParams.delete('tunnel');
+                    window.history.pushState({}, '', url);
+                    setViewingSiteId(null);
+                    setIsTunnelMode(false);
+                }} />;
+            }
             return <SiteView siteId={viewingSiteId} user={user} onExit={() => {
-                window.history.pushState({}, '', '/');
+                const url = new URL(window.location);
+                url.searchParams.delete('view');
+                window.history.pushState({}, '', url);
                 setViewingSiteId(null);
             }} />;
         }
-        return <Dashboard user={user} onLogout={handleLogout} onOpenSite={(id) => setViewingSiteId(id)} />;
+        return <Dashboard user={user} onLogout={handleLogout} onOpenSite={(id) => {
+            setViewingSiteId(id);
+            setIsTunnelMode(true); // Default to tunnel mode for "Open"
+        }} />;
     }
 
     return (

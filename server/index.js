@@ -17,6 +17,134 @@ const io = require('socket.io')(http, {
 });
 global.io = io;
 
+// Session Tunnel (Reverse Proxy) - Dinamik Target & Sticky
+const tunnelProxy = createProxyMiddleware({
+    target: 'http://localhost', // Fallback
+    router: (req) => {
+        const siteId = req.params.id || req.cookies.portal_tunnel_id;
+        if (!siteId) return null;
+
+        const session = global.activePages.get(siteId.toString());
+        if (session && session.siteUrl) {
+            return session.siteUrl;
+        }
+        return null;
+    },
+    changeOrigin: true,
+    secure: false,
+    autoRewrite: true,
+    followRedirects: true,
+    on: {
+        error: (err, req, res) => {
+            console.error('[PROXY ERROR]', err.message, 'URL:', req.url);
+            if (res.writeHead && !res.headersSent) {
+                res.status(500).send('Bağlantı hatası: Hedef siteye ulaşılamıyor veya oturum kapandı.');
+            }
+        },
+        proxyReq: async (proxyReq, req, res) => {
+            const siteId = req.params.id || req.cookies.portal_tunnel_id;
+            const session = global.activePages.get(siteId?.toString());
+            if (session && session.page) {
+                try {
+                    const cookies = await session.page.cookies();
+                    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                    proxyReq.setHeader('Cookie', cookieHeader);
+                } catch (e) {
+                    console.error("[TUNNEL COOKIE ERROR]", e.message);
+                }
+            }
+            proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+            // Modify headers to prevent compression for body rewriting
+            proxyReq.setHeader('accept-encoding', 'identity');
+        },
+        proxyRes: (proxyRes, req, res) => {
+            delete proxyRes.headers['x-frame-options'];
+            delete proxyRes.headers['content-security-policy'];
+            delete proxyRes.headers['x-content-security-policy'];
+            delete proxyRes.headers['content-security-policy-report-only'];
+
+            const contentType = proxyRes.headers['content-type'] || '';
+            const siteId = req.params.id || req.cookies.portal_tunnel_id;
+
+            // Asset handling for MIME type safety
+            const isAsset = req.url.split('?')[0].match(/\.(css|js)$/);
+            if (isAsset && contentType && contentType.includes('text/html')) {
+                proxyRes.statusCode = 404;
+                proxyRes.headers['content-type'] = 'text/plain';
+            }
+
+            // HTML rewrite for script injection
+            if (contentType.includes('text/html') && siteId) {
+                let body = Buffer.from([]);
+                proxyRes.on('data', (chunk) => { body = Buffer.concat([body, chunk]); });
+                proxyRes.on('end', () => {
+                    let html = body.toString('utf8');
+                    const injectionScript = `
+                        <script>
+                            (function() {
+                                console.log("[PORTAL] Login script injected for Site ID: ${siteId}");
+                                async function tryLogin() {
+                                    try {
+                                        const res = await fetch('/api/sites/${siteId}/credentials', {
+                                            headers: { 'X-Portal-Internal': 'true' }
+                                        });
+                                        if (!res.ok) return;
+                                        const { username, password } = await res.json();
+                                        if (!username || !password) return;
+
+                                        const userSelectors = ['input[type="text"]', 'input[type="email"]', 'input[name*="user" i]', 'input[id*="user" i]', 'input[placeholder*="eposta" i]', 'input[placeholder*="username" i]'];
+                                        const passSelectors = ['input[type="password"]', 'input[name*="pass" i]', 'input[id*="id" i]', 'input[placeholder*="şifre" i]', 'input[placeholder*="password" i]'];
+
+                                        let userInp, passInp;
+                                        for (const s of userSelectors) { if (userInp = document.querySelector(s)) break; }
+                                        for (const s of passSelectors) { if (passInp = document.querySelector(s)) break; }
+
+                                        if (userInp && passInp && !userInp.value) {
+                                            console.log("[PORTAL] Filling credentials...");
+                                            userInp.value = username;
+                                            passInp.value = password;
+                                            userInp.dispatchEvent(new Event('input', { bubbles: true }));
+                                            passInp.dispatchEvent(new Event('input', { bubbles: true }));
+                                            setTimeout(() => {
+                                                const form = userInp.closest('form');
+                                                if (form) form.submit();
+                                                else passInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                                            }, 1000);
+                                        }
+                                    } catch (e) { console.error("[PORTAL] Injection error:", e); }
+                                }
+                                if (document.readyState === 'complete') tryLogin();
+                                else window.addEventListener('load', tryLogin);
+                            })();
+                        </script>
+                    `;
+                    if (html.includes('</head>')) html = html.replace('</head>', injectionScript + '</head>');
+                    else if (html.includes('<body>')) html = html.replace('<body>', '<body>' + injectionScript);
+                    else html = injectionScript + html;
+
+                    const modifiedBody = Buffer.from(html, 'utf8');
+                    res.setHeader('content-length', modifiedBody.length);
+                    res.end(modifiedBody);
+                });
+            } else {
+                proxyRes.pipe(res);
+            }
+
+            if (req.params.id) {
+                res.cookie('portal_tunnel_id', req.params.id, { maxAge: 3600000, path: '/' });
+            }
+        }
+    },
+    selfHandleResponse: true,
+    pathRewrite: (path, req) => {
+        const id = req.params.id;
+        if (id) {
+            return path.replace(`/tunnel/${id}`, '');
+        }
+        return path;
+    }
+});
+
 // VNC Page Registry
 global.activePages = new Map();
 
@@ -126,135 +254,29 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
 
-// Session Tunnel (Reverse Proxy) - Dinamik Target & Sticky
-const tunnelProxy = createProxyMiddleware({
-    target: 'http://localhost', // Fallback
-    router: (req) => {
-        const siteId = req.params.id || req.cookies.portal_tunnel_id;
-        if (!siteId) return null;
+// Internal usage for injected script to get credentials
+app.get('/api/sites/:id/credentials', async (req, res) => {
+    // Only allow requests from our tunnel or internal referers
+    if (req.headers['x-portal-internal'] !== 'true' && !req.headers.referer?.includes('/tunnel/')) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
 
-        const session = global.activePages.get(siteId.toString());
-        if (session && session.siteUrl) {
-            return session.siteUrl;
-        }
-        return null;
-    },
-    changeOrigin: true,
-    secure: false,
-    autoRewrite: true, // Internal linklerdeki port/path düzeltmelerini yapar
-    followRedirects: true,
-    on: {
-        error: (err, req, res) => {
-            console.error('[PROXY ERROR]', err.message, 'URL:', req.url);
-            if (res.writeHead && !res.headersSent) {
-                // Eğer tüneldeyse ve hata aldıysa çerezi temizleme, sadece hata ver
-                res.status(500).send('Bağlantı hatası: Hedef siteye ulaşılamıyor veya oturum kapandı.');
-            }
-        },
-        proxyReq: async (proxyReq, req, res) => {
-            const siteId = req.params.id || req.cookies.portal_tunnel_id;
-            const session = global.activePages.get(siteId?.toString());
-            if (session && session.page) {
-                try {
-                    const cookies = await session.page.cookies();
-                    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-                    proxyReq.setHeader('Cookie', cookieHeader);
-                } catch (e) {
-                    console.error("[TUNNEL COOKIE ERROR]", e.message);
-                }
-            }
-            proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-        },
-        proxyRes: (proxyRes, req, res) => {
-            delete proxyRes.headers['x-frame-options'];
-            delete proxyRes.headers['content-security-policy'];
-            delete proxyRes.headers['x-content-security-policy'];
+    try {
+        const { db } = require('./db');
+        const { decrypt } = require('./utils/crypto');
+        const site = await db('sites').where({ id: req.params.id }).first();
+        if (!site || !site.requires_login) return res.status(404).json({ error: 'Not found' });
 
-            // MIME Type Safety: CSS/JS dosyaları için HTML geliyorsa (404 maskelemesi) engelle
-            const contentType = proxyRes.headers['content-type'];
-            const isAsset = req.url.split('?')[0].match(/\.(css|js)$/);
-            if (isAsset && contentType && contentType.includes('text/html')) {
-                console.warn(`[PROXY MIME GUARD] Blocking HTML response for asset: ${req.url}`);
-                proxyRes.statusCode = 404;
-                // Responsu kesmek için head'i vaktinden önce yazabiliriz ama proxyRes'teyiz
-            }
-
-            // Redirect Rewriting: Sunucu seni dışarı (başka domaine) atmaya çalışırsa yakala
-            if (proxyRes.headers.location) {
-                const siteId = req.params.id || req.cookies.portal_tunnel_id;
-                const session = global.activePages.get(siteId?.toString());
-                if (session && session.siteUrl) {
-                    const targetUrl = new URL(session.siteUrl);
-                    const locationUrl = proxyRes.headers.location;
-
-                    if (locationUrl.startsWith(targetUrl.origin)) {
-                        proxyRes.headers.location = locationUrl.replace(targetUrl.origin, '');
-                        console.log(`[REDIRECT REWRITE] ${locationUrl} -> ${proxyRes.headers.location}`);
-                    }
-                }
-            }
-
-            // Tünel çerezini tazele
-            if (req.params.id) {
-                res.cookie('portal_tunnel_id', req.params.id, { maxAge: 3600000, path: '/' });
-            }
-        }
-    },
-    pathRewrite: (path, req) => {
-        const id = req.params.id;
-        if (id) {
-            return path.replace(`/tunnel/${id}`, '');
-        }
-        return path;
+        res.json({
+            username: site.site_username,
+            password: decrypt(site.site_password)
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
 });
 
 app.use('/tunnel/:id', tunnelProxy);
-
-// Sticky Proxy Handler - Root isteklerini tünel aktifse oraya yönlendir
-app.use((req, res, next) => {
-    // API veya favicon her zaman Portal'ındır
-    if (req.url.startsWith('/api') || req.url === '/favicon.ico') {
-        return next();
-    }
-
-    // Aktif bir tünel var mı bak
-    const tunnelId = req.cookies.portal_tunnel_id;
-    const isTunnelActive = tunnelId && global.activePages.has(tunnelId.toString());
-
-    // Eğer bu bir statik dosya isteğiyse (assets, screenshots vb)
-    if (req.url.startsWith('/assets/') || req.url.startsWith('/screenshots/')) {
-        const fullPath = req.url.startsWith('/screenshots/')
-            ? path.join(screenshotsPath, req.url.replace('/screenshots/', ''))
-            : path.join(distPath, req.url);
-
-        // Eğer dosya localde varsa Portal'ındır, serve et
-        if (fs.existsSync(fullPath)) {
-            return next();
-        }
-
-        // KRİTİK: Eğer referer portalın kendisi (dashboard) ise ve dosya yoksa tünele sorma!
-        // Bu durum Portal'ın kendi eski asset'lerini tünelde aramasını engeller (MIME hatasını önler).
-        const referer = req.headers.referer || '';
-        const isFromPortalUI = !referer.includes('/tunnel/') && !referer.includes('/nakit-beyan'); // Örnek olarak tünel yollarını dışla
-
-        if (isFromPortalUI && req.url.startsWith('/assets/')) {
-            return res.status(404).type('text/plain').send('Portal asset not found');
-        }
-
-        // Localde yoksa ve tünel aktifse, bu muhtemelen tünellenen sitenin asset'idir
-        if (isTunnelActive) {
-            return tunnelProxy(req, res, next);
-        }
-    }
-
-    // Diğer tüm durumlar (HTML istekleri vb)
-    if (isTunnelActive) {
-        return tunnelProxy(req, res, next);
-    }
-
-    next();
-});
 
 // Global Route Error Handler
 app.use('/api', (err, req, res, next) => {

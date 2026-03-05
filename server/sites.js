@@ -228,7 +228,7 @@ async function openInteractiveBrowser(site) {
         global.activePages.set(site.id.toString(), {
             page,
             browser,
-            siteUrl: site.url,
+            siteUrl: page.url().includes('about:blank') ? site.url : page.url(),
             lastActivity: Date.now()
         });
 
