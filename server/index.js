@@ -56,6 +56,10 @@ const tunnelProxy = createProxyMiddleware({
             delete proxyRes.headers['x-content-security-policy'];
             delete proxyRes.headers['content-security-policy-report-only'];
 
+            // FIXED: Strip encoding headers because we provide plain text (injected) or original stream
+            delete proxyRes.headers['content-encoding'];
+            delete proxyRes.headers['transfer-encoding'];
+
             if (contentType.includes('text/html') && siteId) {
                 // HTML Injection logic
                 let body = Buffer.from([]);
