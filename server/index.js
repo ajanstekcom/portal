@@ -86,15 +86,21 @@ const tunnelProxy = createProxyMiddleware({
                 delete proxyRes.headers['transfer-encoding'];
                 // Set session cookie for stickiness (important for assets)
                 res.cookie('portal_tunnel_id', siteId, { path: '/', sameSite: 'lax' });
-
                 let body = Buffer.from([]);
                 proxyRes.on('data', (chunk) => { body = Buffer.concat([body, chunk]); });
                 proxyRes.on('end', async () => {
                     try {
                         let htmlBuffer = body;
-                        if (encoding === 'gzip') htmlBuffer = zlib.gunzipSync(body);
-                        else if (encoding === 'deflate') htmlBuffer = zlib.inflateSync(body);
-                        else if (encoding === 'br') htmlBuffer = zlib.brotliDecompressSync(body);
+                        const enc = (encoding || '').toLowerCase();
+                        if (enc === 'gzip') htmlBuffer = zlib.gunzipSync(body);
+                        else if (enc === 'deflate') htmlBuffer = zlib.inflateSync(body);
+                        else if (enc === 'br') {
+                            try {
+                                htmlBuffer = zlib.brotliDecompressSync(body);
+                            } catch (e) {
+                                console.warn("[TUNNEL BR ERROR]", e.message);
+                            }
+                        }
 
                         let html = htmlBuffer.toString('utf8');
                         const injectionScript = `
@@ -146,13 +152,13 @@ const tunnelProxy = createProxyMiddleware({
                         });
                         res.end(modifiedBody);
                     } catch (e) {
-                        console.error("[TUNNEL DECOMPRESS ERROR]", e.message);
+                        console.error("[TUNNEL ERR]", e.message);
                         res.writeHead(proxyRes.statusCode, proxyRes.headers);
                         res.end(body);
                     }
                 });
             } else {
-                // FIXED: Direct piping for non-HTML (JS, CSS, etc.) to preserve MIME types
+                // FIXED: Direct piping for non-HTML (JS, CSS, etc.) to preserve MIME types and encoding
                 res.writeHead(proxyRes.statusCode, proxyRes.headers);
                 proxyRes.pipe(res);
             }
@@ -311,10 +317,11 @@ app.use('/api', (err, req, res, next) => {
 
 // Catch-all for SPA - Express 5.x uyumluluğu için Regex kullanıyoruz
 app.get(/.*/, (req, res) => {
-    // API veya Statik dosya isteğiyse (. noktası içeriyorsa) ve buraya düştüyse direkt 404
-    // ÖNEMLİ: Assets klasörü altındaki 404'leri de yakalamalıyız
-    if (req.url.startsWith('/api/') || req.url.startsWith('/assets/') || req.url.startsWith('/screenshots/') || (req.path.includes('.') && !req.path.endsWith('.html'))) {
-        console.warn(`[ROUTE 404] Statik veya API hatası: ${req.url}`);
+    // SPA Catch-all: Return 404 for ANY missing file with an extension (except .html)
+    // This prevents MIME type errors (text/html instead of text/css)
+    const isAsset = req.path.includes('.') && !req.path.endsWith('.html');
+    if (req.url.startsWith('/api/') || req.url.startsWith('/assets/') || req.url.startsWith('/screenshots/') || isAsset) {
+        if (isAsset) console.warn(`[ASSET 404] Missing asset requested: ${req.url}`);
         return res.status(404).type('text/plain').send('File not found');
     }
 
