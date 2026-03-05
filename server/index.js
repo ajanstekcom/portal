@@ -240,7 +240,8 @@ app.use('/api', (err, req, res, next) => {
 // Catch-all for SPA - Express 5.x uyumluluğu için Regex kullanıyoruz
 app.get(/.*/, (req, res) => {
     // API veya Statik dosya isteğiyse (. noktası içeriyorsa) ve buraya düştüyse direkt 404
-    if (req.url.startsWith('/api/') || (req.path.includes('.') && !req.path.endsWith('.html'))) {
+    // ÖNEMLİ: Assets klasörü altındaki 404'leri de yakalamalıyız
+    if (req.url.startsWith('/api/') || req.url.startsWith('/assets/') || req.url.startsWith('/screenshots/') || (req.path.includes('.') && !req.path.endsWith('.html'))) {
         console.warn(`[ROUTE 404] Statik veya API hatası: ${req.url}`);
         return res.status(404).type('text/plain').send('File not found');
     }
