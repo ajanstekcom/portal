@@ -157,17 +157,6 @@ const Dashboard = ({ user, onLogout, onOpenSite }) => {
 
                 <motion.div initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="flex gap-4">
                     <button
-                        onClick={() => {
-                            document.cookie = "portal_tunnel_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-                            window.location.reload();
-                        }}
-                        className="flex items-center gap-2 bg-slate-900/80 hover:bg-red-500/20 text-slate-400 hover:text-red-500 px-4 py-3 rounded-xl font-bold transition-all border border-slate-800 active:scale-95 group"
-                        title="Tüneli Sıfırla"
-                    >
-                        <RefreshCw size={20} className="group-hover:animate-spin" />
-                        <span className="hidden md:inline">Tüneli Sıfırla</span>
-                    </button>
-                    <button
                         onClick={() => setShowAddModal(true)}
                         className="flex items-center gap-2 bg-primary-600 hover:bg-primary-500 px-6 py-3 rounded-xl font-bold transition-all shadow-xl shadow-primary-500/20 active:scale-95 border border-primary-400/20"
                     >
@@ -387,69 +376,30 @@ const Dashboard = ({ user, onLogout, onOpenSite }) => {
                                 <button
                                     disabled={actionLoading === focusSite.id}
                                     onClick={async () => {
-                                        const isLocal = serverEnv.isDesktop;
                                         setActionLoading(focusSite.id);
                                         setLiveFrame(null);
                                         try {
                                             await api.get(`/sites/${focusSite.id}/open`);
-                                            const interval = setInterval(async () => {
-                                                const res = await api.get('/sites');
-                                                const updatedSite = res.data.find(s => s.id === focusSite.id);
-                                                if (['Tamamlandı', 'Hata Oluştu', 'Form Bulunamadı'].includes(updatedSite.status)) {
-                                                    clearInterval(interval);
-                                                    fetchSites();
-                                                    setActionLoading(null);
-
-                                                    // Sadece uzak sunucuda (Linux vb) sekme aç
-                                                    if (!isLocal) {
-                                                        window.open(`/?view=${focusSite.id}`, '_blank');
-                                                        setActionLoading(null);
-                                                    } else {
-                                                        // Yerelde zaten bot penceresi açıldı, kullanıcıyı oraya yönlendir
-                                                        alert('Otomatik giriş bot penceresinde başarıyla yapıldı! Lütfen o pencereyi kontrol et.');
-                                                    }
-                                                }
-                                            }, 2000);
+                                            onOpenSite(focusSite.id);
                                         } catch (err) {
+                                            alert('Site başlatılamadı');
+                                        } finally {
                                             setActionLoading(null);
                                         }
                                     }}
                                     className={`w-full ${actionLoading === focusSite.id ? 'bg-slate-800 text-white' : 'bg-white text-black'} hover:bg-slate-100 font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all mt-8 active:scale-95`}
                                 >
                                     {actionLoading === focusSite.id ? (
-                                        <>GİRİŞ YAPILIYOR... <RefreshCw className="animate-spin" size={20} /></>
+                                        <>BAŞLATILIYOR... <RefreshCw className="animate-spin" size={20} /></>
                                     ) : (
-                                        <>SİTEYİ AÇ (OTOMATİK GİRİŞ) <ExternalLink size={20} /></>
+                                        <>SİTEYİ AÇ VE ETKİLEŞİM KUR <Monitor size={20} /></>
                                     )}
                                 </button>
-                                <div className="space-y-4 mt-4">
-                                    <button
-                                        onClick={async () => {
-                                            setActionLoading(focusSite.id);
-                                            try {
-                                                await api.get(`/sites/${focusSite.id}/open`);
-                                                // Doğrudan tüneli yeni sekmede aç (SPA UI'ı bypass et)
-                                                const tunnelUrl = `${window.location.origin}/tunnel/${focusSite.id}`;
-                                                window.open(tunnelUrl, '_blank');
-                                            } catch (e) {
-                                                alert('Oturum başlatılamadı');
-                                            } finally {
-                                                setActionLoading(null);
-                                            }
-                                        }}
-                                        disabled={actionLoading === focusSite.id}
-                                        className="w-full bg-primary-600 hover:bg-primary-500 text-white py-5 rounded-3xl font-black text-lg shadow-2xl shadow-primary-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-3 group"
-                                    >
-                                        {actionLoading === focusSite.id ? (
-                                            <RefreshCw className="animate-spin" size={24} />
-                                        ) : (
-                                            <>
-                                                <Lock size={24} className="group-hover:scale-110 transition-transform" />
-                                                GİRİŞ YAP VE AÇ
-                                            </>
-                                        )}
-                                    </button>
-                                    <p className="text-[10px] text-slate-500 text-center font-bold uppercase tracking-widest">Oturum çerezleri otomatik olarak aktarılacaktır</p>
+                                <div className="mt-4">
+                                    <p className="text-[10px] text-slate-500 text-center font-bold uppercase tracking-widest leading-normal">
+                                        Otomatik giriş arka planda yapılır.<br />
+                                        Ekran üzerinden tıklayarak ve yazarak etkileşim kurabilirsiniz.
+                                    </p>
                                 </div>
                             </div>
                         </motion.div>

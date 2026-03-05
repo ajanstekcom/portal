@@ -3,7 +3,6 @@ import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import SiteView from './components/SiteView';
-import TunnelView from './components/TunnelView';
 
 function App() {
     const [user, setUser] = useState(null);
@@ -37,15 +36,6 @@ function App() {
 
     if (user) {
         if (viewingSiteId) {
-            if (isTunnelMode) {
-                return <TunnelView siteId={viewingSiteId} onExit={() => {
-                    const url = new URL(window.location);
-                    url.searchParams.delete('tunnel');
-                    window.history.pushState({}, '', url);
-                    setViewingSiteId(null);
-                    setIsTunnelMode(false);
-                }} />;
-            }
             return <SiteView siteId={viewingSiteId} user={user} onExit={() => {
                 const url = new URL(window.location);
                 url.searchParams.delete('view');
@@ -54,8 +44,10 @@ function App() {
             }} />;
         }
         return <Dashboard user={user} onLogout={handleLogout} onOpenSite={(id) => {
+            const url = new URL(window.location);
+            url.searchParams.set('view', id);
+            window.history.pushState({}, '', url);
             setViewingSiteId(id);
-            setIsTunnelMode(true); // Default to tunnel mode for "Open"
         }} />;
     }
 
