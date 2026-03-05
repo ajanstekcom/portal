@@ -8,6 +8,7 @@ const { initDb } = require('./db');
 const authRoutes = require('./auth');
 const siteRoutes = require('./sites');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const zlib = require('zlib');
 
 const app = express();
 const cookieParser = require('cookie-parser');
@@ -71,6 +72,7 @@ const tunnelProxy = createProxyMiddleware({
         proxyRes: (proxyRes, req, res) => {
             const siteId = req.params.id || req.cookies.portal_tunnel_id;
             const contentType = proxyRes.headers['content-type'] || '';
+            const encoding = proxyRes.headers['content-encoding']; // Capture here
 
             // Strip security headers always
             delete proxyRes.headers['x-frame-options'];
@@ -84,13 +86,18 @@ const tunnelProxy = createProxyMiddleware({
                 delete proxyRes.headers['transfer-encoding'];
                 // Set session cookie for stickiness (important for assets)
                 res.cookie('portal_tunnel_id', siteId, { path: '/', sameSite: 'lax' });
-                // HTML Injection logic
-                // HTML Injection logic
+
                 let body = Buffer.from([]);
                 proxyRes.on('data', (chunk) => { body = Buffer.concat([body, chunk]); });
                 proxyRes.on('end', async () => {
-                    let html = body.toString('utf8');
-                    const injectionScript = `
+                    try {
+                        let htmlBuffer = body;
+                        if (encoding === 'gzip') htmlBuffer = zlib.gunzipSync(body);
+                        else if (encoding === 'deflate') htmlBuffer = zlib.inflateSync(body);
+                        else if (encoding === 'br') htmlBuffer = zlib.brotliDecompressSync(body);
+
+                        let html = htmlBuffer.toString('utf8');
+                        const injectionScript = `
                         <script>
                             (function() {
                                 async function tryLogin() {
@@ -127,17 +134,22 @@ const tunnelProxy = createProxyMiddleware({
                             })();
                         </script>
                     `;
-                    if (html.includes('</head>')) html = html.replace('</head>', injectionScript + '</head>');
-                    else if (html.includes('<body>')) html = html.replace('<body>', '<body>' + injectionScript);
-                    else html = injectionScript + html;
+                        if (html.includes('</head>')) html = html.replace('</head>', injectionScript + '</head>');
+                        else if (html.includes('<body>')) html = html.replace('<body>', '<body>' + injectionScript);
+                        else html = injectionScript + html;
 
-                    const modifiedBody = Buffer.from(html, 'utf8');
-                    res.writeHead(proxyRes.statusCode, {
-                        ...proxyRes.headers,
-                        'content-length': modifiedBody.length,
-                        'content-type': 'text/html; charset=utf-8'
-                    });
-                    res.end(modifiedBody);
+                        const modifiedBody = Buffer.from(html, 'utf8');
+                        res.writeHead(proxyRes.statusCode, {
+                            ...proxyRes.headers,
+                            'content-length': modifiedBody.length,
+                            'content-type': 'text/html; charset=utf-8'
+                        });
+                        res.end(modifiedBody);
+                    } catch (e) {
+                        console.error("[TUNNEL DECOMPRESS ERROR]", e.message);
+                        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                        res.end(body);
+                    }
                 });
             } else {
                 // FIXED: Direct piping for non-HTML (JS, CSS, etc.) to preserve MIME types
