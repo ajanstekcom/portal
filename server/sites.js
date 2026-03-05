@@ -229,6 +229,7 @@ async function openInteractiveBrowser(site) {
             page,
             browser,
             siteUrl: page.url().includes('about:blank') ? site.url : page.url(),
+            initialUrl: site.url,
             lastActivity: Date.now()
         });
 

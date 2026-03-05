@@ -21,10 +21,23 @@ global.io = io;
 const tunnelProxy = createProxyMiddleware({
     target: 'http://localhost',
     router: (req) => {
-        const siteId = req.params.id || req.cookies.portal_tunnel_id;
+        const idFromParams = req.params.id;
+        const idFromCookie = req.cookies.portal_tunnel_id;
+        const siteId = idFromParams || idFromCookie;
+
         if (!siteId) return null;
+
         const session = global.activePages.get(siteId.toString());
-        return session?.siteUrl || null;
+        if (!session) return null;
+
+        // Return ONLY the origin (protocol + host) to avoid double paths on relative requests
+        try {
+            const targetUrl = session.siteUrl || session.initialUrl;
+            const url = new URL(targetUrl);
+            return url.origin;
+        } catch (e) {
+            return session.siteUrl;
+        }
     },
     changeOrigin: true,
     secure: false,
@@ -34,8 +47,11 @@ const tunnelProxy = createProxyMiddleware({
     timeout: 60000,
     on: {
         error: (err, req, res) => {
-            console.error('[PROXY ERROR]', err.message);
-            res.status(504).send('Proxy Error: Target site timed out or is unavailable.');
+            const siteId = req.params.id || req.cookies.portal_tunnel_id;
+            console.error(`[PROXY ERROR] Site ${siteId} | Request ${req.url}:`, err.message);
+            // Don't send 504 for incidental asset failures to avoid breaking the whole page
+            if (res.headersSent) return;
+            res.status(504).send(`Proxy Error: Target site timed out or is unavailable (Site: ${siteId}, Error: ${err.message})`);
         },
         proxyReq: async (proxyReq, req, res) => {
             const siteId = req.params.id || req.cookies.portal_tunnel_id;
@@ -135,8 +151,12 @@ const tunnelProxy = createProxyMiddleware({
     },
     selfHandleResponse: true,
     pathRewrite: (path, req) => {
-        const id = req.params.id;
-        return id ? path.replace(`/tunnel/${id}`, '') : path;
+        // Only rewrite if it's the primary tunnel mount
+        if (path.startsWith('/tunnel/')) {
+            const id = req.params.id || path.split('/')[2];
+            return path.replace(`/tunnel/${id}`, '') || '/';
+        }
+        return path;
     }
 });
 
@@ -241,6 +261,23 @@ app.get('/api/sites/:id/credentials', async (req, res) => {
 });
 
 app.use('/api/sites', siteRoutes);
+
+// Global Tunnel Fallback (for root-relative assets from target sites)
+app.use((req, res, next) => {
+    const portalTunnelId = req.cookies.portal_tunnel_id;
+    // Bypass if: No session, internal routes, or dashboard root
+    if (!portalTunnelId ||
+        req.url.startsWith('/tunnel/') ||
+        req.url === '/' ||
+        req.url.startsWith('/api/') ||
+        req.url.startsWith('/assets/') ||
+        req.url.startsWith('/screenshots/')) {
+        return next();
+    }
+
+    // Proxy root-relative requests to the active tunnel
+    return tunnelProxy(req, res, next);
+});
 
 app.use('/tunnel/:id', tunnelProxy);
 
