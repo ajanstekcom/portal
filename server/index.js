@@ -30,7 +30,13 @@ const tunnelProxy = createProxyMiddleware({
     secure: false,
     autoRewrite: true,
     followRedirects: true,
+    proxyTimeout: 60000,
+    timeout: 60000,
     on: {
+        error: (err, req, res) => {
+            console.error('[PROXY ERROR]', err.message);
+            res.status(504).send('Proxy Error: Target site timed out or is unavailable.');
+        },
         proxyReq: async (proxyReq, req, res) => {
             const siteId = req.params.id || req.cookies.portal_tunnel_id;
             const session = global.activePages.get(siteId?.toString());
@@ -59,6 +65,11 @@ const tunnelProxy = createProxyMiddleware({
             // FIXED: Strip encoding headers because we provide plain text (injected) or original stream
             delete proxyRes.headers['content-encoding'];
             delete proxyRes.headers['transfer-encoding'];
+
+            // Set session cookie for stickiness (important for assets)
+            if (siteId) {
+                res.cookie('portal_tunnel_id', siteId, { path: '/', sameSite: 'lax' });
+            }
 
             if (contentType.includes('text/html') && siteId) {
                 // HTML Injection logic
@@ -205,9 +216,9 @@ app.get('/api/health', (req, res) => {
     });
 });
 app.use('/api/auth', authRoutes);
-app.use('/api/sites', siteRoutes);
 
 // Internal usage for injected script to get credentials
+// PRE-AUTH to allow injected script (bot) access
 app.get('/api/sites/:id/credentials', async (req, res) => {
     // Only allow requests from our tunnel or internal referers
     if (req.headers['x-portal-internal'] !== 'true' && !req.headers.referer?.includes('/tunnel/')) {
@@ -228,6 +239,8 @@ app.get('/api/sites/:id/credentials', async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+
+app.use('/api/sites', siteRoutes);
 
 app.use('/tunnel/:id', tunnelProxy);
 
