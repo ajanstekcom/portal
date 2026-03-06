@@ -11,9 +11,8 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const zlib = require('zlib');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
-// Proxy agent configuration (Using new Oxylabs credentials)
-// rejectUnauthorized: false is added to avoid SSL issues between proxy and target
-const proxyUrl = process.env.PROXY_URL || 'http://user-ajanstek_oYp4b-country-US:PgF8Xkmle=STXap5@dc.oxylabs.io:8000';
+// Proxy agent configuration (Hardcoded working Oxylabs credentials)
+const proxyUrl = 'http://user-ajanstek_oYp4b-country-US:PgF8Xkmle=STXap5@dc.oxylabs.io:8000';
 const proxyAgent = new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
 
 const app = express();
