@@ -20,6 +20,11 @@ const io = require('socket.io')(http, {
 });
 global.io = io;
 
+io.on('connection', (socket) => {
+    console.log(`[IO] Yeni bağlantı: ${socket.id} | Origin: ${socket.handshake.headers.origin}`);
+    socket.on('disconnect', () => console.log(`[IO] Bağlantı kesildi: ${socket.id}`));
+});
+
 let dbInitialized = false;
 
 // Proxy agent configuration
@@ -195,7 +200,7 @@ global.activePages = new Map();
 // Catch-all SPA
 app.get(/.*/, (req, res) => {
     const isAsset = req.path.includes('.') && !req.path.endsWith('.html');
-    if (req.url.startsWith('/api/') || isAsset) return res.status(404).send('Not found');
+    if (req.url.startsWith('/api/') || req.url.startsWith('/socket.io/') || isAsset) return res.status(404).send('Not found');
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) res.sendFile(indexPath);
     else res.status(404).send('Build not found');

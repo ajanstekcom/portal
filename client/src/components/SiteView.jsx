@@ -3,7 +3,11 @@ import { io } from 'socket.io-client';
 import { ChevronLeft, ChevronRight, RotateCw, Monitor, Shield, X, Maximize2, MousePointer2, Keyboard, ExternalLink, Lock } from 'lucide-react';
 import api from '../api';
 
-const socket = io();
+const socket = io({
+    path: '/socket.io',
+    transports: ['polling', 'websocket'],
+    autoConnect: true
+});
 
 const SiteView = ({ siteId, user, onExit }) => {
     const [site, setSite] = useState(null);

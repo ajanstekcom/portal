@@ -7,10 +7,10 @@ export default defineConfig({
     server: {
         port: 5174,
         proxy: {
-            '/api': 'http://localhost:5173',
-            '/screenshots': 'http://localhost:5173',
+            '/api': 'http://127.0.0.1:5173',
+            '/screenshots': 'http://127.0.0.1:5173',
             '/socket.io': {
-                target: 'http://localhost:5173',
+                target: 'http://127.0.0.1:5173',
                 ws: true
             }
         }
