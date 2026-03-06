@@ -50,15 +50,17 @@ const tunnelProxy = createProxyMiddleware({
     autoRewrite: true,
     followRedirects: true,
     agent: proxyAgent, // Use proxy from .env if defined
-    proxyTimeout: 60000,
-    timeout: 60000,
+    proxyTimeout: 120000,
+    timeout: 120000,
     on: {
         error: (err, req, res) => {
             const siteId = req.params.id || req.cookies.portal_tunnel_id;
-            console.error(`[PROXY ERROR] Site ${siteId} | Request ${req.url}:`, err.message);
-            // Don't send 504 for incidental asset failures to avoid breaking the whole page
+            const target = req.headers['host'] || 'unknown';
+            console.error(`[TUNNEL PROXY ERROR] Site: ${siteId} | Target: ${target} | Req: ${req.url} | Error: ${err.code} - ${err.message}`);
+
             if (res.headersSent) return;
-            res.status(504).send(`Proxy Error: Target site timed out or is unavailable (Site: ${siteId}, Error: ${err.message})`);
+            const status = err.code === 'ETIMEDOUT' ? 504 : 502;
+            res.status(status).send(`Proxy Error (${err.code}): Target site timed out or is unavailable (Site: ${siteId})`);
         },
         proxyReq: async (proxyReq, req, res) => {
             const siteId = req.params.id || req.cookies.portal_tunnel_id;
@@ -197,10 +199,16 @@ app.all('/api/cors-proxy', (req, res, next) => {
     changeOrigin: true,
     agent: proxyAgent,
     secure: false, // Sertifika hatalarını görmezden gel
+    proxyTimeout: 120000,
+    timeout: 120000,
     on: {
         error: (err, req, res) => {
-            console.error("[CORS PROXY ERROR]", err.message);
-            if (!res.headersSent) res.status(502).send("Proxy Error: " + err.message);
+            const targetUrl = req.headers['x-target-url'] || req.query.url;
+            console.error(`[CORS PROXY ERROR] Target: ${targetUrl} | Error: ${err.code} - ${err.message}`);
+            if (!res.headersSent) {
+                const status = err.code === 'ETIMEDOUT' ? 504 : 502;
+                res.status(status).send(`CORS Proxy Error (${err.code}): ${err.message}`);
+            }
         },
         proxyReq: (proxyReq, req) => {
             const targetUrl = req.headers['x-target-url'] || req.query.url;
