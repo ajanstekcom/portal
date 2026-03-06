@@ -11,17 +11,29 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const zlib = require('zlib');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
-// Proxy agent configuration (Hardcoded fallback for reliability)
+const app = express();
+const http = require('http').createServer(app);
+const cookieParser = require('cookie-parser');
+let dbInitialized = false;
+
+// Proxy agent configuration...
 const proxyUrl = process.env.PROXY_URL || 'http://user-ajanstek_oYp4b-country-US:PgF8Xkmle=STXap5@dc.oxylabs.io:8000';
 const proxyAgent = new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
 
-const app = express();
-const cookieParser = require('cookie-parser');
-const http = require('http').createServer(app);
 const io = require('socket.io')(http, {
     cors: { origin: "*", methods: ["GET", "POST"] }
 });
 global.io = io;
+
+// 0. Global Logger (EVERYTHING hits this first)
+app.use((req, res, next) => {
+    console.log(`[REQ] ${req.method} ${req.url} | UA: ${req.headers['user-agent']?.substring(0, 50)}`);
+    next();
+});
+
+// 1. Health Check (Non-blocking, minimal)
+app.get('/api/health-check', (req, res) => res.send('OK - ' + new Date().toISOString()));
+app.get('/health', (req, res) => res.send('OK'));
 
 // Session Tunnel (Reverse Proxy)
 const tunnelProxy = createProxyMiddleware({
@@ -121,15 +133,17 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 console.log(`[BOOT] Hedef Port: ${PORT}`);
 
-// Middleware (Exclude proxy paths from global body parsing to avoid "drained stream" issues)
+// Middleware
 app.use(cors());
+app.use(cookieParser());
+
+// Robust express.json (skip for proxies)
 app.use((req, res, next) => {
     if (req.url.startsWith('/tunnel/') || req.url.startsWith('/api/cors-proxy')) {
         return next();
     }
-    express.json()(req, res, next);
+    express.json({ limit: '10mb' })(req, res, next);
 });
-app.use(cookieParser());
 
 // DB-wait middleware for API routes
 const waitForDb = (req, res, next) => {
@@ -329,26 +343,22 @@ app.use('/api', (err, req, res, next) => {
     });
 });
 
-// Catch-all for SPA - Express 5.x uyumluluğu için Regex kullanıyoruz
-app.get(/.*/, (req, res) => {
-    // SPA Catch-all: Return 404 for ANY missing file with an extension (except .html)
-    // This prevents MIME type errors (text/html instead of text/css)
+// Catch-all for SPA
+app.get('*', (req, res) => {
+    // If it looks like an asset that wasn't found, 404 immediately
     const isAsset = req.path.includes('.') && !req.path.endsWith('.html');
     if (req.url.startsWith('/api/') || req.url.startsWith('/assets/') || req.url.startsWith('/screenshots/') || isAsset) {
         if (isAsset) console.warn(`[ASSET 404] Missing asset requested: ${req.url}`);
         return res.status(404).type('text/plain').send('File not found');
     }
 
-    const indexPath = path.join(distPath, 'index.html');
+    const indexPath = path.resolve(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
-        // Cache busting for index.html to ensure new asset hashes are picked up
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
-        res.setHeader('Surrogate-Control', 'no-store');
         res.sendFile(indexPath);
     } else {
-        res.status(404).send('Frontend build results not found. Please run build script.');
+        console.error(`[SPA ERROR] index.html not found at ${indexPath}`);
+        res.status(404).send('Frontend build results not found. Please redeploy.');
     }
 });
 
@@ -362,7 +372,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('[WARN] Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-let dbInitialized = false;
+
 
 // Start server immediately
 http.listen(PORT, '0.0.0.0', () => {
