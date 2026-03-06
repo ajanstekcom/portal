@@ -75,6 +75,14 @@ const tunnelProxy = createProxyMiddleware({
             proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
             proxyReq.setHeader('accept-encoding', 'identity'); // Disable compression for injection
             proxyReq.setHeader('Connection', 'keep-alive');
+
+            // Fix for POST bodies being "eaten" by express.json()
+            if (req.body && Object.keys(req.body).length > 0) {
+                const bodyData = JSON.stringify(req.body);
+                proxyReq.setHeader('Content-Type', 'application/json');
+                proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+                proxyReq.write(bodyData);
+            }
         },
         proxyRes: (proxyRes, req, res) => {
             // Strip security headers always to allow iframing
@@ -111,9 +119,14 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 console.log(`[BOOT] Hedef Port: ${PORT}`);
 
-// Middleware
+// Middleware (Exclude proxy paths from global body parsing to avoid "drained stream" issues)
 app.use(cors());
-app.use(express.json());
+app.use((req, res, next) => {
+    if (req.url.startsWith('/tunnel/') || req.url.startsWith('/api/cors-proxy')) {
+        return next();
+    }
+    express.json()(req, res, next);
+});
 app.use(cookieParser());
 
 // DB-wait middleware for API routes
@@ -220,6 +233,14 @@ app.all('/api/cors-proxy', (req, res, next) => {
                 proxyReq.setHeader('host', url.host);
                 proxyReq.setHeader('origin', url.origin);
                 proxyReq.setHeader('referer', url.origin);
+
+                // Fix for POST bodies in CORS proxy
+                if (req.body && Object.keys(req.body).length > 0) {
+                    const bodyData = JSON.stringify(req.body);
+                    proxyReq.setHeader('Content-Type', 'application/json');
+                    proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+                    proxyReq.write(bodyData);
+                }
             }
         },
         proxyRes: (proxyRes) => {
