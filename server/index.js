@@ -151,14 +151,118 @@ const waitForDb = (req, res, next) => {
     }, 100);
 };
 
-// Apply DB-wait to all /api routes (Except CORS proxy which doesn't need DB)
-app.use('/api', (req, res, next) => {
-    // Log all incoming API requests for debugging
-    console.log(`[API REQUEST] ${req.method} ${req.url}`);
+// Apply DB-wait to all /api routes (Except CORS proxy and Debug which don't need DB)
+const apiRouter = express.Router();
 
-    if (req.url.startsWith('/cors-proxy')) return next();
+// 1. CORS Bypass Proxy (En tepede olmalı)
+apiRouter.all('/cors-proxy', (req, res, next) => {
+    const targetUrl = req.headers['x-target-url'] || req.query.url;
+    console.log(`[CORS PROXY] ${req.method} -> ${targetUrl}`);
+    if (!targetUrl) return res.status(400).send('Target URL required');
+    next();
+}, createProxyMiddleware({
+    router: (req) => {
+        const targetUrl = req.headers['x-target-url'] || req.query.url;
+        try { return new URL(targetUrl).origin; } catch (e) { return null; }
+    },
+    changeOrigin: true,
+    agent: proxyAgent,
+    secure: false,
+    proxyTimeout: 120000,
+    timeout: 120000,
+    on: {
+        error: (err, req, res) => {
+            const targetUrl = req.headers['x-target-url'] || req.query.url;
+            console.error(`[CORS PROXY ERROR] Target: ${targetUrl} | Error: ${err.code} - ${err.message}`);
+            if (!res.headersSent) {
+                const status = err.code === 'ETIMEDOUT' ? 504 : 502;
+                res.status(status).send(`CORS Proxy Error (${err.code}): ${err.message}`);
+            }
+        },
+        proxyReq: (proxyReq, req) => {
+            const targetUrl = req.headers['x-target-url'] || req.query.url;
+            if (targetUrl) {
+                const url = new URL(targetUrl);
+                proxyReq.setHeader('host', url.host);
+                proxyReq.setHeader('origin', url.origin);
+                proxyReq.setHeader('referer', url.origin);
+                if (req.body && Object.keys(req.body).length > 0) {
+                    const bodyData = JSON.stringify(req.body);
+                    proxyReq.setHeader('Content-Type', 'application/json');
+                    proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+                    proxyReq.write(bodyData);
+                }
+            }
+        },
+        proxyRes: (proxyRes) => {
+            proxyRes.headers['access-control-allow-origin'] = '*';
+            proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH';
+            proxyRes.headers['access-control-allow-headers'] = '*';
+            proxyRes.headers['access-control-allow-credentials'] = 'true';
+        }
+    },
+    pathRewrite: (path, req) => {
+        const targetUrl = req.headers['x-target-url'] || req.query.url;
+        try {
+            const url = new URL(targetUrl);
+            return url.pathname + url.search;
+        } catch (e) { return path; }
+    }
+}));
+
+// 2. Diagnostic Route
+apiRouter.get('/debug/proxy-test', async (req, res) => {
+    const axios = require('axios');
+    const target = req.query.url || 'https://ip.oxylabs.io/location';
+    console.log(`[DEBUG] Proxy test to: ${target}`);
+    try {
+        const start = Date.now();
+        const response = await axios.get(target, {
+            httpsAgent: proxyAgent,
+            proxy: false,
+            timeout: 30000
+        });
+        res.json({
+            success: true,
+            status: response.status,
+            duration: Date.now() - start,
+            data: response.data,
+            proxyUrl: proxyUrl.replace(/:[^:@]+@/, ':****@')
+        });
+    } catch (err) {
+        console.error("[DEBUG PROXY TEST FAILED]", err.message);
+        res.status(502).json({
+            success: false,
+            error: err.code,
+            message: err.message,
+            proxyUrl: proxyUrl.replace(/:[^:@]+@/, ':****@')
+        });
+    }
+});
+
+// Middleware for routes that NEED DB
+apiRouter.use((req, res, next) => {
+    console.log(`[API REQUEST] ${req.method} ${req.url}`);
     waitForDb(req, res, next);
 });
+
+// 3. Auth & App Routes
+apiRouter.use('/auth', authRoutes);
+apiRouter.get('/sites/:id/credentials', async (req, res) => {
+    if (req.headers['x-portal-internal'] !== 'true' && !req.headers.referer?.includes('/tunnel/')) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    try {
+        const { db } = require('./db');
+        const { decrypt } = require('./utils/crypto');
+        const site = await db('sites').where({ id: req.params.id }).first();
+        if (!site || !site.requires_login) return res.status(404).json({ error: 'Not found' });
+        res.json({ username: site.site_username, password: decrypt(site.site_password) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+apiRouter.use('/sites', siteRoutes);
+
+app.use('/api', apiRouter);
 
 // Static files for screenshots and frontend
 const screenshotsPath = path.join(__dirname, '../public/screenshots');
@@ -184,112 +288,7 @@ app.use('/screenshots', express.static(screenshotsPath));
 app.use('/assets', express.static(path.join(distPath, 'assets'), { fallthrough: true }));
 app.use(express.static(distPath));
 
-// Routes
-// 0. Diagnostic Route
-app.get('/api/debug/proxy-test', async (req, res) => {
-    const axios = require('axios');
-    const target = req.query.url || 'https://ip.oxylabs.io/location';
-    console.log(`[DEBUG] Proxy test to: ${target}`);
 
-    try {
-        const start = Date.now();
-        const response = await axios.get(target, {
-            httpsAgent: proxyAgent,
-            proxy: false,
-            timeout: 30000
-        });
-        res.json({
-            success: true,
-            status: response.status,
-            duration: Date.now() - start,
-            data: response.data,
-            proxyUrl: proxyUrl.replace(/:[^:@]+@/, ':****@') // Proxy şifresini gizle
-        });
-    } catch (err) {
-        console.error("[DEBUG PROXY TEST FAILED]", err.message);
-        res.status(502).json({
-            success: false,
-            error: err.code,
-            message: err.message,
-            proxyUrl: proxyUrl.replace(/:[^:@]+@/, ':****@')
-        });
-    }
-});
-
-// 1. CORS Bypass Proxy (En tepede olmalı ki diğer route'lara çarpmadan yakalasın)
-app.all('/api/cors-proxy', (req, res, next) => {
-    const targetUrl = req.headers['x-target-url'] || req.query.url;
-    console.log(`[CORS PROXY] ${req.method} -> ${targetUrl}`);
-    if (!targetUrl) return res.status(400).send('Target URL required');
-    next();
-}, createProxyMiddleware({
-    router: (req) => {
-        const targetUrl = req.headers['x-target-url'] || req.query.url;
-        try { return new URL(targetUrl).origin; } catch (e) { return null; }
-    },
-    changeOrigin: true,
-    agent: proxyAgent,
-    secure: false, // Sertifika hatalarını görmezden gel
-    proxyTimeout: 120000,
-    timeout: 120000,
-    on: {
-        error: (err, req, res) => {
-            const targetUrl = req.headers['x-target-url'] || req.query.url;
-            console.error(`[CORS PROXY ERROR] Target: ${targetUrl} | Error: ${err.code} - ${err.message}`);
-            if (!res.headersSent) {
-                const status = err.code === 'ETIMEDOUT' ? 504 : 502;
-                res.status(status).send(`CORS Proxy Error (${err.code}): ${err.message}`);
-            }
-        },
-        proxyReq: (proxyReq, req) => {
-            const targetUrl = req.headers['x-target-url'] || req.query.url;
-            if (targetUrl) {
-                const url = new URL(targetUrl);
-                proxyReq.setHeader('host', url.host);
-                proxyReq.setHeader('origin', url.origin);
-                proxyReq.setHeader('referer', url.origin);
-
-                // POST Body Restream
-                if (req.body && Object.keys(req.body).length > 0) {
-                    const bodyData = JSON.stringify(req.body);
-                    proxyReq.setHeader('Content-Type', 'application/json');
-                    proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-                    proxyReq.write(bodyData);
-                }
-            }
-        },
-        proxyRes: (proxyRes) => {
-            proxyRes.headers['access-control-allow-origin'] = '*';
-            proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH';
-            proxyRes.headers['access-control-allow-headers'] = '*';
-            proxyRes.headers['access-control-allow-credentials'] = 'true';
-        }
-    },
-    pathRewrite: (path, req) => {
-        const targetUrl = req.headers['x-target-url'] || req.query.url;
-        try {
-            const url = new URL(targetUrl);
-            return url.pathname + url.search;
-        } catch (e) { return path; }
-    }
-}));
-
-// 2. Auth & App Routes
-app.use('/api/auth', authRoutes);
-app.get('/api/sites/:id/credentials', async (req, res) => {
-    // Only allow requests from our tunnel or internal referers
-    if (req.headers['x-portal-internal'] !== 'true' && !req.headers.referer?.includes('/tunnel/')) {
-        return res.status(403).json({ error: 'Forbidden' });
-    }
-    try {
-        const { db } = require('./db');
-        const { decrypt } = require('./utils/crypto');
-        const site = await db('sites').where({ id: req.params.id }).first();
-        if (!site || !site.requires_login) return res.status(404).json({ error: 'Not found' });
-        res.json({ username: site.site_username, password: decrypt(site.site_password) });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-app.use('/api/sites', siteRoutes);
 
 // Global Tunnel Fallback (for root-relative assets)
 app.use((req, res, next) => {
