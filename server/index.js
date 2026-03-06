@@ -344,7 +344,7 @@ app.use('/api', (err, req, res, next) => {
 });
 
 // Catch-all for SPA
-app.get('*', (req, res) => {
+app.get(/.*/, (req, res) => {
     // If it looks like an asset that wasn't found, 404 immediately
     const isAsset = req.path.includes('.') && !req.path.endsWith('.html');
     if (req.url.startsWith('/api/') || req.url.startsWith('/assets/') || req.url.startsWith('/screenshots/') || isAsset) {
