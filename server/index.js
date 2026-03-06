@@ -1,5 +1,6 @@
-console.log(`[BOOT] Server başlatılıyor... Saat: ${new Date().toISOString()}`);
 require('dotenv').config();
+const PORT = process.env.PORT || 5173;
+console.log(`[BOOT] Server başlatılıyor... Port: ${PORT} | Saat: ${new Date().toISOString()}`);
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -84,9 +85,9 @@ app.get(/.*/, (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, '0.0.0.0', () => {
-    console.log(`[BOOT] Server ${PORT} portunda dinliyor`);
+const PORT_CONFIG = process.env.PORT || 5173;
+http.listen(PORT_CONFIG, '0.0.0.0', () => {
+    console.log(`[BOOT] Server ${PORT_CONFIG} portunda dinliyor (0.0.0.0)`);
     initDb().then(() => {
         dbInitialized = true;
         console.log('[BOOT] Veritabanı hazır.');
