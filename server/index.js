@@ -149,8 +149,14 @@ const waitForDb = (req, res, next) => {
     }, 100);
 };
 
-// Apply DB-wait to all /api routes
-app.use('/api', waitForDb);
+// Apply DB-wait to all /api routes (Except CORS proxy which doesn't need DB)
+app.use('/api', (req, res, next) => {
+    // Log all incoming API requests for debugging
+    console.log(`[API REQUEST] ${req.method} ${req.url}`);
+
+    if (req.url.startsWith('/cors-proxy')) return next();
+    waitForDb(req, res, next);
+});
 
 // Static files for screenshots and frontend
 const screenshotsPath = path.join(__dirname, '../public/screenshots');
