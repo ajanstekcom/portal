@@ -11,8 +11,8 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const zlib = require('zlib');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
-// Proxy agent configuration (Hardcoded working Oxylabs credentials)
-const proxyUrl = 'http://user-ajanstek_oYp4b-country-US:PgF8Xkmle=STXap5@dc.oxylabs.io:8000';
+// Proxy agent configuration (Hardcoded fallback for reliability)
+const proxyUrl = process.env.PROXY_URL || 'http://user-ajanstek_oYp4b-country-US:PgF8Xkmle=STXap5@dc.oxylabs.io:8000';
 const proxyAgent = new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
 
 const app = express();
@@ -177,55 +177,25 @@ app.use('/assets', express.static(path.join(distPath, 'assets'), { fallthrough: 
 app.use(express.static(distPath));
 
 // Routes
-app.get('/api/health', (req, res) => {
-    res.json({
-        status: dbInitialized ? 'ok' : 'initializing',
-        timestamp: new Date(),
-        uptime: process.uptime(),
-        env: {
-            isDesktop: process.platform === 'darwin' || process.platform === 'win32',
-            platform: process.platform,
-            node_env: process.env.NODE_ENV
-        }
-    });
-});
-app.use('/api/auth', authRoutes);
-
-// Internal usage for injected script to get credentials
-// PRE-AUTH to allow injected script (bot) access
-app.get('/api/sites/:id/credentials', async (req, res) => {
-    // Only allow requests from our tunnel or internal referers
-    if (req.headers['x-portal-internal'] !== 'true' && !req.headers.referer?.includes('/tunnel/')) {
-        return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    try {
-        const { db } = require('./db');
-        const { decrypt } = require('./utils/crypto');
-        const site = await db('sites').where({ id: req.params.id }).first();
-        if (!site || !site.requires_login) return res.status(404).json({ error: 'Not found' });
-
-        res.json({
-            username: site.site_username,
-            password: decrypt(site.site_password)
-        });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-app.use('/api/sites', siteRoutes);
-
-// CORS Bypass Proxy for external API calls from proxied sites
+// 1. CORS Bypass Proxy (En tepede olmalı ki diğer route'lara çarpmadan yakalasın)
 app.all('/api/cors-proxy', (req, res, next) => {
     const targetUrl = req.headers['x-target-url'] || req.query.url;
+    console.log(`[CORS PROXY] ${req.method} -> ${targetUrl}`);
     if (!targetUrl) return res.status(400).send('Target URL required');
     next();
 }, createProxyMiddleware({
-    router: (req) => req.headers['x-target-url'] || req.query.url,
+    router: (req) => {
+        const targetUrl = req.headers['x-target-url'] || req.query.url;
+        try { return new URL(targetUrl).origin; } catch (e) { return null; }
+    },
     changeOrigin: true,
-    agent: proxyAgent, // Use proxy from .env if defined
+    agent: proxyAgent,
+    secure: false, // Sertifika hatalarını görmezden gel
     on: {
+        error: (err, req, res) => {
+            console.error("[CORS PROXY ERROR]", err.message);
+            if (!res.headersSent) res.status(502).send("Proxy Error: " + err.message);
+        },
         proxyReq: (proxyReq, req) => {
             const targetUrl = req.headers['x-target-url'] || req.query.url;
             if (targetUrl) {
@@ -234,7 +204,7 @@ app.all('/api/cors-proxy', (req, res, next) => {
                 proxyReq.setHeader('origin', url.origin);
                 proxyReq.setHeader('referer', url.origin);
 
-                // Fix for POST bodies in CORS proxy
+                // POST Body Restream
                 if (req.body && Object.keys(req.body).length > 0) {
                     const bodyData = JSON.stringify(req.body);
                     proxyReq.setHeader('Content-Type', 'application/json');
@@ -252,10 +222,29 @@ app.all('/api/cors-proxy', (req, res, next) => {
     },
     pathRewrite: (path, req) => {
         const targetUrl = req.headers['x-target-url'] || req.query.url;
-        if (targetUrl) return new URL(targetUrl).pathname + new URL(targetUrl).search;
-        return path;
+        try {
+            const url = new URL(targetUrl);
+            return url.pathname + url.search;
+        } catch (e) { return path; }
     }
 }));
+
+// 2. Auth & App Routes
+app.use('/api/auth', authRoutes);
+app.get('/api/sites/:id/credentials', async (req, res) => {
+    // Only allow requests from our tunnel or internal referers
+    if (req.headers['x-portal-internal'] !== 'true' && !req.headers.referer?.includes('/tunnel/')) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    try {
+        const { db } = require('./db');
+        const { decrypt } = require('./utils/crypto');
+        const site = await db('sites').where({ id: req.params.id }).first();
+        if (!site || !site.requires_login) return res.status(404).json({ error: 'Not found' });
+        res.json({ username: site.site_username, password: decrypt(site.site_password) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.use('/api/sites', siteRoutes);
 
 // Global Tunnel Fallback (for root-relative assets)
 app.use((req, res, next) => {
