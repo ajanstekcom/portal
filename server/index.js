@@ -10,7 +10,10 @@ const siteRoutes = require('./sites');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const zlib = require('zlib');
 const { HttpsProxyAgent } = require('https-proxy-agent');
-const oxylabsProxyAgent = new HttpsProxyAgent('http://asfer_A2TR7:eWvrnEcN3s~wVV6@unblock.oxylabs.io:60000');
+
+// Proxy agent from environment (Optional) - User can put any proxy URL here
+const proxyUrl = process.env.PROXY_URL; // e.g., http://user:pass@host:port
+const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
 
 const app = express();
 const cookieParser = require('cookie-parser');
@@ -46,7 +49,7 @@ const tunnelProxy = createProxyMiddleware({
     secure: false,
     autoRewrite: true,
     followRedirects: true,
-    agent: oxylabsProxyAgent, // Use Oxylabs for all tunnel traffic
+    agent: proxyAgent, // Use proxy from .env if defined
     proxyTimeout: 60000,
     timeout: 60000,
     on: {
@@ -207,7 +210,7 @@ app.all('/api/cors-proxy', (req, res, next) => {
 }, createProxyMiddleware({
     router: (req) => req.headers['x-target-url'] || req.query.url,
     changeOrigin: true,
-    agent: oxylabsProxyAgent, // Use Oxylabs for CORS proxy calls
+    agent: proxyAgent, // Use proxy from .env if defined
     on: {
         proxyReq: (proxyReq, req) => {
             const targetUrl = req.headers['x-target-url'] || req.query.url;
