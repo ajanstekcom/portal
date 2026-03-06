@@ -42,47 +42,86 @@ const SiteView = ({ siteId, user, onExit }) => {
         const iframe = document.getElementById('tunnel-iframe');
         if (!iframe) return;
 
+        let pollInterval;
         const handleLoad = async () => {
-            console.log("[PORTAL] Iframe loaded, attempting injection...");
+            console.log("[PORTAL] Iframe loaded/changed, starting injection polling...");
+
             try {
-                // Get credentials
                 const res = await api.get(`/sites/${siteId}/credentials`, {
                     headers: { 'X-Portal-Internal': 'true' }
                 });
                 const { username, password } = res.data;
                 if (!username || !password) return;
 
-                // Same-origin check and injection
-                const doc = iframe.contentDocument || iframe.contentWindow.document;
-                if (!doc) return;
+                // Stop any previous polling
+                if (pollInterval) clearInterval(pollInterval);
 
-                const userSelectors = ['input[type="text"]', 'input[type="email"]', 'input[name*="user" i]', 'input[id*="user" i]', 'input[placeholder*="eposta" i]', 'input[placeholder*="username" i]'];
-                const passSelectors = ['input[type="password"]', 'input[name*="pass" i]', 'input[id*="id" i]', 'input[placeholder*="şifre" i]', 'input[placeholder*="password" i]'];
+                let attempts = 0;
+                pollInterval = setInterval(() => {
+                    attempts++;
+                    if (attempts > 50) { // 10 seconds timeout
+                        clearInterval(pollInterval);
+                        return;
+                    }
 
-                let userInp, passInp;
-                for (const s of userSelectors) { if (userInp = doc.querySelector(s)) break; }
-                for (const s of passSelectors) { if (passInp = doc.querySelector(s)) break; }
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (!doc) return;
 
-                if (userInp && passInp && !userInp.value) {
-                    userInp.value = username;
-                    passInp.value = password;
-                    userInp.dispatchEvent(new Event('input', { bubbles: true }));
-                    passInp.dispatchEvent(new Event('input', { bubbles: true }));
+                    const userSelectors = ['input[type="text"]', 'input[type="email"]', 'input[name*="user" i]', 'input[id*="user" i]', 'input[placeholder*="eposta" i]', 'input[placeholder*="username" i]', 'input[placeholder*="Kullanıcı Adı" i]'];
+                    const passSelectors = ['input[type="password"]', 'input[name*="pass" i]', 'input[id*="id" i]', 'input[placeholder*="şifre" i]', 'input[placeholder*="password" i]'];
 
-                    // Small delay for frameworks to catch up
-                    setTimeout(() => {
-                        const form = userInp.closest('form');
-                        if (form) form.submit();
-                        else passInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-                    }, 500);
-                }
-            } catch (e) {
-                console.error("[PORTAL] Frontend injection error:", e);
+                    let userInp, passInp;
+                    for (const s of userSelectors) { if (userInp = doc.querySelector(s)) break; }
+                    for (const s of passSelectors) { if (passInp = doc.querySelector(s)) break; }
+
+                    if (userInp && passInp) {
+                        console.log("[PORTAL] Inputs found, filling data...");
+                        clearInterval(pollInterval);
+
+                        // React-friendly value setting
+                        const setNativeValue = (element, value) => {
+                            const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
+                            const prototype = Object.getPrototypeOf(element);
+                            const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+                            if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {
+                                prototypeValueSetter.call(element, value);
+                            } else {
+                                element.value = value;
+                            }
+                        };
+
+                        setNativeValue(userInp, username);
+                        setNativeValue(passInp, password);
+
+                        userInp.dispatchEvent(new Event('input', { bubbles: true }));
+                        userInp.dispatchEvent(new Event('change', { bubbles: true }));
+                        passInp.dispatchEvent(new Event('input', { bubbles: true }));
+                        passInp.dispatchEvent(new Event('change', { bubbles: true }));
+
+                        setTimeout(() => {
+                            const submitBtn = doc.querySelector('button[type="submit"]') || doc.querySelector('button[class*="button_primary" i]');
+                            const form = userInp.closest('form');
+
+                            if (submitBtn) submitBtn.click();
+                            else if (form) form.submit();
+                            else passInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, code: 'Enter', which: 13 }));
+                        }, 800);
+                    }
+                }, 200);
+            } catch (err) {
+                console.error("[PORTAL] Injection error:", err);
             }
         };
 
         iframe.addEventListener('load', handleLoad);
-        return () => iframe.removeEventListener('load', handleLoad);
+        // Force an initial check in case iframe is already loaded
+        handleLoad();
+
+        return () => {
+            iframe.removeEventListener('load', handleLoad);
+            if (pollInterval) clearInterval(pollInterval);
+        };
     }, [siteId]);
 
     const refreshPage = () => {
