@@ -31,9 +31,22 @@ app.use((req, res, next) => {
     next();
 });
 
-// 1. Health Check (Non-blocking, minimal)
+// 1. Health Checks (Non-blocking, minimal)
 app.get('/api/health-check', (req, res) => res.send('OK - ' + new Date().toISOString()));
+app.get('/api/health', (req, res) => res.send('OK'));
 app.get('/health', (req, res) => res.send('OK'));
+
+// Root URL serving (Move this early for better response)
+const distPath = path.resolve(__dirname, '../client/dist');
+const indexPath = path.join(distPath, 'index.html');
+
+app.get('/', (req, res, next) => {
+    if (fs.existsSync(indexPath)) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+        return res.sendFile(indexPath);
+    }
+    next();
+});
 
 // Session Tunnel (Reverse Proxy)
 const tunnelProxy = createProxyMiddleware({
@@ -279,8 +292,8 @@ apiRouter.use('/sites', siteRoutes);
 app.use('/api', apiRouter);
 
 // Static files for screenshots and frontend
-const screenshotsPath = path.join(__dirname, '../public/screenshots');
-const distPath = path.join(__dirname, '../client/dist');
+const screenshotsPath = path.resolve(__dirname, '../public/screenshots');
+// distPath is already defined above
 
 // Middleware to log static requests and failures
 app.use((req, res, next) => {
