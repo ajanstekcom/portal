@@ -185,6 +185,37 @@ app.use('/assets', express.static(path.join(distPath, 'assets'), { fallthrough: 
 app.use(express.static(distPath));
 
 // Routes
+// 0. Diagnostic Route
+app.get('/api/debug/proxy-test', async (req, res) => {
+    const axios = require('axios');
+    const target = req.query.url || 'https://ip.oxylabs.io/location';
+    console.log(`[DEBUG] Proxy test to: ${target}`);
+
+    try {
+        const start = Date.now();
+        const response = await axios.get(target, {
+            httpsAgent: proxyAgent,
+            proxy: false,
+            timeout: 30000
+        });
+        res.json({
+            success: true,
+            status: response.status,
+            duration: Date.now() - start,
+            data: response.data,
+            proxyUrl: proxyUrl.replace(/:[^:@]+@/, ':****@') // Proxy şifresini gizle
+        });
+    } catch (err) {
+        console.error("[DEBUG PROXY TEST FAILED]", err.message);
+        res.status(502).json({
+            success: false,
+            error: err.code,
+            message: err.message,
+            proxyUrl: proxyUrl.replace(/:[^:@]+@/, ':****@')
+        });
+    }
+});
+
 // 1. CORS Bypass Proxy (En tepede olmalı ki diğer route'lara çarpmadan yakalasın)
 app.all('/api/cors-proxy', (req, res, next) => {
     const targetUrl = req.headers['x-target-url'] || req.query.url;
