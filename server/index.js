@@ -70,101 +70,20 @@ const tunnelProxy = createProxyMiddleware({
             proxyReq.setHeader('accept-encoding', 'identity'); // Disable compression for injection
         },
         proxyRes: (proxyRes, req, res) => {
-            const siteId = req.params.id || req.cookies.portal_tunnel_id;
-            const contentType = proxyRes.headers['content-type'] || '';
-            const encoding = proxyRes.headers['content-encoding']; // Capture here
-
-            // Strip security headers always
+            // Strip security headers always to allow iframing
             delete proxyRes.headers['x-frame-options'];
             delete proxyRes.headers['content-security-policy'];
             delete proxyRes.headers['x-content-security-policy'];
             delete proxyRes.headers['content-security-policy-report-only'];
 
-            if (contentType.includes('text/html') && siteId) {
-                // FIXED: Strip encoding headers ONLY when we modify the body (HTML injection)
-                delete proxyRes.headers['content-encoding'];
-                delete proxyRes.headers['transfer-encoding'];
-                // Set session cookie for stickiness (important for assets)
+            // Set session cookie for stickiness (important for assets)
+            const siteId = req.params.id || req.cookies.portal_tunnel_id;
+            if (siteId) {
                 res.cookie('portal_tunnel_id', siteId, { path: '/', sameSite: 'lax' });
-                let body = Buffer.from([]);
-                proxyRes.on('data', (chunk) => { body = Buffer.concat([body, chunk]); });
-                proxyRes.on('end', async () => {
-                    try {
-                        let htmlBuffer = body;
-                        const enc = (encoding || '').toLowerCase();
-                        if (enc === 'gzip') htmlBuffer = zlib.gunzipSync(body);
-                        else if (enc === 'deflate') htmlBuffer = zlib.inflateSync(body);
-                        else if (enc === 'br') {
-                            try {
-                                htmlBuffer = zlib.brotliDecompressSync(body);
-                            } catch (e) {
-                                console.warn("[TUNNEL BR ERROR]", e.message);
-                            }
-                        }
-
-                        let html = htmlBuffer.toString('utf8');
-                        const injectionScript = `
-                        <script>
-                            (function() {
-                                async function tryLogin() {
-                                    try {
-                                        const res = await fetch('/api/sites/${siteId}/credentials', {
-                                            headers: { 'X-Portal-Internal': 'true' }
-                                        });
-                                        if (!res.ok) return;
-                                        const { username, password } = await res.json();
-                                        if (!username || !password) return;
-
-                                        const userSelectors = ['input[type="text"]', 'input[type="email"]', 'input[name*="user" i]', 'input[id*="user" i]', 'input[placeholder*="eposta" i]', 'input[placeholder*="username" i]'];
-                                        const passSelectors = ['input[type="password"]', 'input[name*="pass" i]', 'input[id*="id" i]', 'input[placeholder*="şifre" i]', 'input[placeholder*="password" i]'];
-
-                                        let userInp, passInp;
-                                        for (const s of userSelectors) { if (userInp = document.querySelector(s)) break; }
-                                        for (const s of passSelectors) { if (passInp = document.querySelector(s)) break; }
-
-                                        if (userInp && passInp && !userInp.value) {
-                                            userInp.value = username;
-                                            passInp.value = password;
-                                            userInp.dispatchEvent(new Event('input', { bubbles: true }));
-                                            passInp.dispatchEvent(new Event('input', { bubbles: true }));
-                                            setTimeout(() => {
-                                                const form = userInp.closest('form');
-                                                if (form) form.submit();
-                                                else passInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-                                            }, 1000);
-                                        }
-                                    } catch (e) { console.error("[PORTAL] Injection error:", e); }
-                                }
-                                if (document.readyState === 'complete') tryLogin();
-                                else window.addEventListener('load', tryLogin);
-                            })();
-                        </script>
-                    `;
-                        if (html.includes('</head>')) html = html.replace('</head>', injectionScript + '</head>');
-                        else if (html.includes('<body>')) html = html.replace('<body>', '<body>' + injectionScript);
-                        else html = injectionScript + html;
-
-                        const modifiedBody = Buffer.from(html, 'utf8');
-                        res.writeHead(proxyRes.statusCode, {
-                            ...proxyRes.headers,
-                            'content-length': modifiedBody.length,
-                            'content-type': 'text/html; charset=utf-8'
-                        });
-                        res.end(modifiedBody);
-                    } catch (e) {
-                        console.error("[TUNNEL ERR]", e.message);
-                        res.writeHead(proxyRes.statusCode, proxyRes.headers);
-                        res.end(body);
-                    }
-                });
-            } else {
-                // FIXED: Direct piping for non-HTML (JS, CSS, etc.) to preserve MIME types and encoding
-                res.writeHead(proxyRes.statusCode, proxyRes.headers);
-                proxyRes.pipe(res);
             }
         }
     },
-    selfHandleResponse: true,
+    selfHandleResponse: false,
     pathRewrite: (path, req) => {
         // Only rewrite if it's the primary tunnel mount
         if (path.startsWith('/tunnel/')) {
@@ -234,7 +153,7 @@ app.use((req, res, next) => {
 app.use('/screenshots', express.static(screenshotsPath));
 
 // Portal assets - fallthrough: false ensures missing assets don't hit SPA catch-all
-app.use('/assets', express.static(path.join(distPath, 'assets'), { fallthrough: false }));
+app.use('/assets', express.static(path.join(distPath, 'assets'), { fallthrough: true }));
 app.use(express.static(distPath));
 
 // Routes
@@ -284,13 +203,14 @@ app.use((req, res, next) => {
         req.url.startsWith('/tunnel/') ||
         req.url === '/' ||
         req.url.startsWith('/api/') ||
-        req.url.startsWith('/assets/') ||
         req.url.startsWith('/screenshots/')) {
         return next();
     }
 
-    // SADECE aktif bir oturum varsa proxy'ye gönder
+    // SADECE aktif bir oturum varsa proxy'ye gönder (Ancak portalın kendi assetleri değilse)
     if (global.activePages.has(portalTunnelId.toString())) {
+        // Eğer bu bir asset isteğiyse ve bizim dist klasörümüzde yoksa (üstteki express.static'lerden geçmediyse buraya gelir)
+        // Proxied sitenin asseti olabilir.
         return tunnelProxy(req, res, next);
     }
     next();

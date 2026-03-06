@@ -38,6 +38,53 @@ const SiteView = ({ siteId, user, onExit }) => {
         };
     }, [siteId]);
 
+    useEffect(() => {
+        const iframe = document.getElementById('tunnel-iframe');
+        if (!iframe) return;
+
+        const handleLoad = async () => {
+            console.log("[PORTAL] Iframe loaded, attempting injection...");
+            try {
+                // Get credentials
+                const res = await api.get(`/sites/${siteId}/credentials`, {
+                    headers: { 'X-Portal-Internal': 'true' }
+                });
+                const { username, password } = res.data;
+                if (!username || !password) return;
+
+                // Same-origin check and injection
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                if (!doc) return;
+
+                const userSelectors = ['input[type="text"]', 'input[type="email"]', 'input[name*="user" i]', 'input[id*="user" i]', 'input[placeholder*="eposta" i]', 'input[placeholder*="username" i]'];
+                const passSelectors = ['input[type="password"]', 'input[name*="pass" i]', 'input[id*="id" i]', 'input[placeholder*="şifre" i]', 'input[placeholder*="password" i]'];
+
+                let userInp, passInp;
+                for (const s of userSelectors) { if (userInp = doc.querySelector(s)) break; }
+                for (const s of passSelectors) { if (passInp = doc.querySelector(s)) break; }
+
+                if (userInp && passInp && !userInp.value) {
+                    userInp.value = username;
+                    passInp.value = password;
+                    userInp.dispatchEvent(new Event('input', { bubbles: true }));
+                    passInp.dispatchEvent(new Event('input', { bubbles: true }));
+
+                    // Small delay for frameworks to catch up
+                    setTimeout(() => {
+                        const form = userInp.closest('form');
+                        if (form) form.submit();
+                        else passInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                    }, 500);
+                }
+            } catch (e) {
+                console.error("[PORTAL] Frontend injection error:", e);
+            }
+        };
+
+        iframe.addEventListener('load', handleLoad);
+        return () => iframe.removeEventListener('load', handleLoad);
+    }, [siteId]);
+
     const refreshPage = () => {
         const iframe = document.getElementById('tunnel-iframe');
         if (iframe) iframe.src = iframe.src;
@@ -88,7 +135,7 @@ const SiteView = ({ siteId, user, onExit }) => {
                 />
 
                 {/* Status Overlay (Fade out if connected) */}
-                {status !== 'Tamamlandı' && (
+                {status !== 'Tamamlandı' && status !== 'Ziyaret Edildi' && (
                     <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl flex flex-col items-center justify-center gap-8 z-20">
                         <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin shadow-[0_0_30px_-5px_rgba(59,130,246,0.5)]"></div>
                         <div className="text-center">
