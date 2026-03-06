@@ -9,14 +9,21 @@ const router = express.Router();
 
 // Middleware to verify JWT
 const authenticate = (req, res, next) => {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1];
+
+    if (!token) {
+        console.warn(`[AUTH] Unauthorized: No token provided for ${req.url}`);
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
 
     try {
-        const decoded = require('jsonwebtoken').verify(token, process.env.JWT_SECRET || 'supersecretkey123');
+        const secret = process.env.JWT_SECRET || 'supersecretkey123';
+        const decoded = require('jsonwebtoken').verify(token, secret);
         req.user = decoded;
         next();
     } catch (error) {
+        console.warn(`[AUTH] Invalid token for ${req.url}: ${error.message}`);
         res.status(401).json({ error: 'Invalid token' });
     }
 };
