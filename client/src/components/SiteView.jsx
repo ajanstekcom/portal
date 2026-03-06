@@ -38,90 +38,134 @@ const SiteView = ({ siteId, user, onExit }) => {
         };
     }, [siteId]);
 
+    const runSmartLogin = async (manual = false) => {
+        const iframe = document.getElementById('tunnel-iframe');
+        if (!iframe) {
+            console.error("[PORTAL] Iframe bulunamadı!");
+            return;
+        }
+
+        console.log(`[PORTAL] SmartLogin başlatılıyor... (Manuel: ${manual})`);
+
+        try {
+            const res = await api.get(`/sites/${siteId}/credentials`, {
+                headers: { 'X-Portal-Internal': 'true' }
+            });
+            const { username, password } = res.data;
+            if (!username || !password) {
+                console.warn("[PORTAL] Kimlik bilgileri bulunamadı.");
+                return;
+            }
+
+            let attempts = 0;
+            const maxAttempts = manual ? 1 : 50; // Manuel ise hemen dene, otomatikse bekle
+
+            const poll = setInterval(() => {
+                attempts++;
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+                if (!doc || doc.readyState === 'loading') {
+                    console.log("[PORTAL] Belge henüz hazır değil...");
+                    if (attempts >= maxAttempts) clearInterval(poll);
+                    return;
+                }
+
+                // --- SELECTORS ---
+                const userSelectors = ['input[type="text"]', 'input[type="email"]', 'input[name*="user" i]', 'input[id*="user" i]', 'input[placeholder*="eposta" i]', 'input[placeholder*="username" i]', 'input[placeholder*="Kullanıcı" i]'];
+                const passSelectors = ['input[type="password"]', 'input[name*="pass" i]', 'input[id*="id" i]', 'input[placeholder*="şifre" i]', 'input[placeholder*="password" i]'];
+
+                let userInp, passInp;
+                for (const s of userSelectors) { if (userInp = doc.querySelector(s)) break; }
+                for (const s of passSelectors) { if (passInp = doc.querySelector(s)) break; }
+
+                // --- 1. ADIM: EĞER INPUT YOKSA GİRİŞ BUTONUNU ARA (PUPEETER FEYİZ) ---
+                if (!userInp && !passInp) {
+                    const allButtons = Array.from(doc.querySelectorAll('button, a, span'));
+                    const loginBtn = allButtons.find(el => {
+                        const txt = el.textContent.toLowerCase();
+                        return txt.includes('admin girişi') || txt.includes('yönetici girişi') || txt.includes('giriş yap');
+                    });
+
+                    if (loginBtn) {
+                        console.log("[PORTAL] Giriş butonu bulundu, tıklanıyor:", loginBtn.textContent);
+                        loginBtn.click();
+                        clearInterval(poll);
+                        // Tıkladıktan sonra tekrar başla (sayfa değişebilir)
+                        setTimeout(() => runSmartLogin(false), 1500);
+                        return;
+                    }
+                }
+
+                // --- 2. ADIM: INPUTLARI DOLDUR ---
+                if (userInp && passInp) {
+                    console.log("[PORTAL] Inputlar bulundu, veriler basılıyor...");
+                    clearInterval(poll);
+
+                    const setNativeValue = (element, value) => {
+                        const prototype = Object.getPrototypeOf(element);
+                        const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+                        if (valueSetter) valueSetter.call(element, value);
+                        else element.value = value;
+                    };
+
+                    // Klik ve Focus taklidi
+                    userInp.focus();
+                    userInp.click();
+                    setNativeValue(userInp, username);
+                    userInp.dispatchEvent(new Event('input', { bubbles: true }));
+                    userInp.dispatchEvent(new Event('change', { bubbles: true }));
+
+                    passInp.focus();
+                    passInp.click();
+                    setNativeValue(passInp, password);
+                    passInp.dispatchEvent(new Event('input', { bubbles: true }));
+                    passInp.dispatchEvent(new Event('change', { bubbles: true }));
+
+                    // --- 3. ADIM: SUBMIT ---
+                    setTimeout(() => {
+                        const submitBtns = Array.from(doc.querySelectorAll('button, input[type="submit"]'));
+                        const submitBtn = submitBtns.find(el => {
+                            const txt = (el.textContent || el.value || '').toLowerCase();
+                            return txt.includes('giriş') || txt.includes('login') || txt.includes('oturumu aç');
+                        });
+
+                        const form = userInp.closest('form');
+
+                        if (submitBtn) {
+                            console.log("[PORTAL] Submit butonu tıklandı.");
+                            submitBtn.click();
+                        } else if (form) {
+                            console.log("[PORTAL] Form submit edildi.");
+                            form.submit();
+                        } else {
+                            console.log("[PORTAL] Enter tuşu gönderildi.");
+                            passInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, keyCode: 13 }));
+                        }
+                    }, 1000);
+                }
+
+                if (attempts >= maxAttempts) {
+                    clearInterval(poll);
+                    if (!manual) console.log("[PORTAL] Zaman aşımı: Inputlar veya buton bulunamadı.");
+                }
+            }, 500);
+
+        } catch (err) {
+            console.error("[PORTAL] Hata:", err);
+        }
+    };
+
     useEffect(() => {
         const iframe = document.getElementById('tunnel-iframe');
         if (!iframe) return;
 
-        let pollInterval;
-        const handleLoad = async () => {
-            console.log("[PORTAL] Iframe loaded/changed, starting injection polling...");
-
-            try {
-                const res = await api.get(`/sites/${siteId}/credentials`, {
-                    headers: { 'X-Portal-Internal': 'true' }
-                });
-                const { username, password } = res.data;
-                if (!username || !password) return;
-
-                // Stop any previous polling
-                if (pollInterval) clearInterval(pollInterval);
-
-                let attempts = 0;
-                pollInterval = setInterval(() => {
-                    attempts++;
-                    if (attempts > 50) { // 10 seconds timeout
-                        clearInterval(pollInterval);
-                        return;
-                    }
-
-                    const doc = iframe.contentDocument || iframe.contentWindow.document;
-                    if (!doc) return;
-
-                    const userSelectors = ['input[type="text"]', 'input[type="email"]', 'input[name*="user" i]', 'input[id*="user" i]', 'input[placeholder*="eposta" i]', 'input[placeholder*="username" i]', 'input[placeholder*="Kullanıcı Adı" i]'];
-                    const passSelectors = ['input[type="password"]', 'input[name*="pass" i]', 'input[id*="id" i]', 'input[placeholder*="şifre" i]', 'input[placeholder*="password" i]'];
-
-                    let userInp, passInp;
-                    for (const s of userSelectors) { if (userInp = doc.querySelector(s)) break; }
-                    for (const s of passSelectors) { if (passInp = doc.querySelector(s)) break; }
-
-                    if (userInp && passInp) {
-                        console.log("[PORTAL] Inputs found, filling data...");
-                        clearInterval(pollInterval);
-
-                        // React-friendly value setting
-                        const setNativeValue = (element, value) => {
-                            const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
-                            const prototype = Object.getPrototypeOf(element);
-                            const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-
-                            if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {
-                                prototypeValueSetter.call(element, value);
-                            } else {
-                                element.value = value;
-                            }
-                        };
-
-                        setNativeValue(userInp, username);
-                        setNativeValue(passInp, password);
-
-                        userInp.dispatchEvent(new Event('input', { bubbles: true }));
-                        userInp.dispatchEvent(new Event('change', { bubbles: true }));
-                        passInp.dispatchEvent(new Event('input', { bubbles: true }));
-                        passInp.dispatchEvent(new Event('change', { bubbles: true }));
-
-                        setTimeout(() => {
-                            const submitBtn = doc.querySelector('button[type="submit"]') || doc.querySelector('button[class*="button_primary" i]');
-                            const form = userInp.closest('form');
-
-                            if (submitBtn) submitBtn.click();
-                            else if (form) form.submit();
-                            else passInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, code: 'Enter', which: 13 }));
-                        }, 800);
-                    }
-                }, 200);
-            } catch (err) {
-                console.error("[PORTAL] Injection error:", err);
-            }
-        };
-
+        const handleLoad = () => runSmartLogin(false);
         iframe.addEventListener('load', handleLoad);
-        // Force an initial check in case iframe is already loaded
-        handleLoad();
 
-        return () => {
-            iframe.removeEventListener('load', handleLoad);
-            if (pollInterval) clearInterval(pollInterval);
-        };
+        // İlk açılışta da dene
+        runSmartLogin(false);
+
+        return () => iframe.removeEventListener('load', handleLoad);
     }, [siteId]);
 
     const refreshPage = () => {
@@ -154,6 +198,13 @@ const SiteView = ({ siteId, user, onExit }) => {
                 </div>
 
                 <div className="flex items-center gap-2 mr-2">
+                    <button
+                        onClick={() => runSmartLogin(true)}
+                        className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-indigo-500/20"
+                        title="Botu Manuel Çalıştır"
+                    >
+                        <MousePointer2 size={14} /> Botu Çalıştır
+                    </button>
                     <button onClick={refreshPage} className="p-2.5 hover:bg-slate-800 rounded-xl text-slate-400 bg-slate-950/50 border border-slate-800">
                         <RotateCw size={18} />
                     </button>
