@@ -70,14 +70,25 @@ const tunnelProxy = createProxyMiddleware({
             const status = err.code === 'ETIMEDOUT' ? 504 : 502;
             res.status(status).send(`Proxy Error (${err.code})`);
         },
-        proxyReq: (proxyReq, req) => {
-            proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-            proxyReq.setHeader('accept-encoding', 'identity');
-            if (req.body && Object.keys(req.body).length > 0) {
-                const bodyData = JSON.stringify(req.body);
-                proxyReq.setHeader('Content-Type', 'application/json');
-                proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-                proxyReq.write(bodyData);
+        proxyReq: (proxyReq, req, res) => {
+            // Check if headers are already sent to avoid CRASH
+            if (res.headersSent) {
+                console.warn(`[PROXY] Header zaten gönderilmiş, skip: ${req.url}`);
+                return;
+            }
+
+            try {
+                proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+                proxyReq.setHeader('accept-encoding', 'identity');
+
+                if (req.body && Object.keys(req.body).length > 0) {
+                    const bodyData = JSON.stringify(req.body);
+                    proxyReq.setHeader('Content-Type', 'application/json');
+                    proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+                    proxyReq.write(bodyData);
+                }
+            } catch (e) {
+                console.error(`[PROXY] proxyReq hatası: ${e.message}`);
             }
         },
         proxyRes: (proxyRes, req, res) => {
@@ -145,18 +156,24 @@ apiRouter.all('/cors-proxy', (req, res, next) => {
         error: (err, req, res) => {
             if (!res.headersSent) res.status(err.code === 'ETIMEDOUT' ? 504 : 502).send(`CORS Proxy Error: ${err.message}`);
         },
-        proxyReq: (proxyReq, req) => {
+        proxyReq: (proxyReq, req, res) => {
+            if (res.headersSent) return;
+
             const targetUrl = req.headers['x-target-url'] || req.query.url;
             if (targetUrl) {
-                const url = new URL(targetUrl);
-                proxyReq.setHeader('host', url.host);
-                proxyReq.setHeader('origin', url.origin);
-                proxyReq.setHeader('referer', url.origin);
-                if (req.body && Object.keys(req.body).length > 0) {
-                    const bodyData = JSON.stringify(req.body);
-                    proxyReq.setHeader('Content-Type', 'application/json');
-                    proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-                    proxyReq.write(bodyData);
+                try {
+                    const url = new URL(targetUrl);
+                    proxyReq.setHeader('host', url.host);
+                    proxyReq.setHeader('origin', url.origin);
+                    proxyReq.setHeader('referer', url.origin);
+                    if (req.body && Object.keys(req.body).length > 0) {
+                        const bodyData = JSON.stringify(req.body);
+                        proxyReq.setHeader('Content-Type', 'application/json');
+                        proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+                        proxyReq.write(bodyData);
+                    }
+                } catch (e) {
+                    console.error(`[CORS-PROXY] proxyReq hatası: ${e.message}`);
                 }
             }
         },

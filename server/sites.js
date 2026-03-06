@@ -199,6 +199,17 @@ async function openInteractiveBrowser(site) {
         browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${port}`, defaultViewport: null });
     } catch (e) {
         // Yoksa yeni aç
+        // CLEANUP: Eğer kilit dosyası kalmışsa sil (Lock hatasını önlemek için)
+        const lockPath = path.join(profilePath, 'SingletonLock');
+        if (fs.existsSync(lockPath)) {
+            try {
+                fs.unlinkSync(lockPath);
+                console.log(`[BROWSER] Eski kilit dosyası temizlendi: ${lockPath}`);
+            } catch (uerr) {
+                console.warn(`[BROWSER] Lock dosyası silinemedi (önemli değil): ${uerr.message}`);
+            }
+        }
+
         const isLinux = process.platform === 'linux';
         browser = await puppeteer.launch({
             executablePath: EXECUTABLE_PATH,
