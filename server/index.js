@@ -196,6 +196,38 @@ app.get('/api/sites/:id/credentials', async (req, res) => {
 
 app.use('/api/sites', siteRoutes);
 
+// CORS Bypass Proxy for external API calls from proxied sites
+app.all('/api/cors-proxy', (req, res, next) => {
+    const targetUrl = req.headers['x-target-url'] || req.query.url;
+    if (!targetUrl) return res.status(400).send('Target URL required');
+    next();
+}, createProxyMiddleware({
+    router: (req) => req.headers['x-target-url'] || req.query.url,
+    changeOrigin: true,
+    on: {
+        proxyReq: (proxyReq, req) => {
+            const targetUrl = req.headers['x-target-url'] || req.query.url;
+            if (targetUrl) {
+                const url = new URL(targetUrl);
+                proxyReq.setHeader('host', url.host);
+                proxyReq.setHeader('origin', url.origin);
+                proxyReq.setHeader('referer', url.origin);
+            }
+        },
+        proxyRes: (proxyRes) => {
+            proxyRes.headers['access-control-allow-origin'] = '*';
+            proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH';
+            proxyRes.headers['access-control-allow-headers'] = '*';
+            proxyRes.headers['access-control-allow-credentials'] = 'true';
+        }
+    },
+    pathRewrite: (path, req) => {
+        const targetUrl = req.headers['x-target-url'] || req.query.url;
+        if (targetUrl) return new URL(targetUrl).pathname + new URL(targetUrl).search;
+        return path;
+    }
+}));
+
 // Global Tunnel Fallback (for root-relative assets)
 app.use((req, res, next) => {
     const portalTunnelId = req.cookies.portal_tunnel_id;

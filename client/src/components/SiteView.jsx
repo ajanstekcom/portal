@@ -58,16 +58,42 @@ const SiteView = ({ siteId, user, onExit }) => {
             }
 
             let attempts = 0;
-            const maxAttempts = manual ? 1 : 50; // Manuel ise hemen dene, otomatikse bekle
+            const maxAttempts = manual ? 1 : 50;
 
             const poll = setInterval(() => {
                 attempts++;
                 const doc = iframe.contentDocument || iframe.contentWindow.document;
 
                 if (!doc || doc.readyState === 'loading') {
-                    console.log("[PORTAL] Belge henüz hazır değil...");
                     if (attempts >= maxAttempts) clearInterval(poll);
                     return;
+                }
+
+                // --- CORS BYPASS INJECTION ---
+                if (!doc.getElementById('portal-cors-bypass')) {
+                    const script = doc.createElement('script');
+                    script.id = 'portal-cors-bypass';
+                    script.textContent = `
+                        (function() {
+                            const originalFetch = window.fetch;
+                            window.fetch = function(url, options) {
+                                if (typeof url === 'string' && url.startsWith('http') && !url.includes(window.location.host)) {
+                                    const proxyUrl = '/api/cors-proxy?url=' + encodeURIComponent(url);
+                                    return originalFetch(proxyUrl, options);
+                                }
+                                return originalFetch(url, options);
+                            };
+                            const originalOpen = XMLHttpRequest.prototype.open;
+                            XMLHttpRequest.prototype.open = function(method, url) {
+                                if (typeof url === 'string' && url.startsWith('http') && !url.includes(window.location.host)) {
+                                    url = '/api/cors-proxy?url=' + encodeURIComponent(url);
+                                }
+                                return originalOpen.apply(this, arguments);
+                            };
+                            console.log("[PORTAL] CORS Bypass aktif.");
+                        })();
+                    `;
+                    doc.head.prepend(script);
                 }
 
                 // --- SELECTORS ---
@@ -78,27 +104,24 @@ const SiteView = ({ siteId, user, onExit }) => {
                 for (const s of userSelectors) { if (userInp = doc.querySelector(s)) break; }
                 for (const s of passSelectors) { if (passInp = doc.querySelector(s)) break; }
 
-                // --- 1. ADIM: EĞER INPUT YOKSA GİRİŞ BUTONUNU ARA (PUPEETER FEYİZ) ---
                 if (!userInp && !passInp) {
                     const allButtons = Array.from(doc.querySelectorAll('button, a, span'));
                     const loginBtn = allButtons.find(el => {
                         const txt = el.textContent.toLowerCase();
-                        return txt.includes('admin girişi') || txt.includes('yönetici girişi') || txt.includes('giriş yap');
+                        return txt.includes('admin girişi') || txt.includes('yönetici girişi') || txt.includes('giriş yap') || txt.includes('personel girişi');
                     });
 
                     if (loginBtn) {
-                        console.log("[PORTAL] Giriş butonu bulundu, tıklanıyor:", loginBtn.textContent);
+                        console.log("[PORTAL] Başlatma butonu bulundu, tıklanıyor...");
                         loginBtn.click();
                         clearInterval(poll);
-                        // Tıkladıktan sonra tekrar başla (sayfa değişebilir)
-                        setTimeout(() => runSmartLogin(false), 1500);
+                        setTimeout(() => runSmartLogin(false), 1000);
                         return;
                     }
                 }
 
-                // --- 2. ADIM: INPUTLARI DOLDUR ---
                 if (userInp && passInp) {
-                    console.log("[PORTAL] Inputlar bulundu, veriler basılıyor...");
+                    console.log("[PORTAL] Form bulundu, dolduruluyor...");
                     clearInterval(poll);
 
                     const setNativeValue = (element, value) => {
@@ -108,51 +131,36 @@ const SiteView = ({ siteId, user, onExit }) => {
                         else element.value = value;
                     };
 
-                    // Klik ve Focus taklidi
                     userInp.focus();
-                    userInp.click();
                     setNativeValue(userInp, username);
                     userInp.dispatchEvent(new Event('input', { bubbles: true }));
                     userInp.dispatchEvent(new Event('change', { bubbles: true }));
 
                     passInp.focus();
-                    passInp.click();
                     setNativeValue(passInp, password);
                     passInp.dispatchEvent(new Event('input', { bubbles: true }));
                     passInp.dispatchEvent(new Event('change', { bubbles: true }));
 
-                    // --- 3. ADIM: SUBMIT ---
                     setTimeout(() => {
-                        const submitBtns = Array.from(doc.querySelectorAll('button, input[type="submit"]'));
-                        const submitBtn = submitBtns.find(el => {
+                        const allBtns = Array.from(doc.querySelectorAll('button, input[type="submit"]'));
+                        const submitBtn = allBtns.find(el => {
                             const txt = (el.textContent || el.value || '').toLowerCase();
-                            return txt.includes('giriş') || txt.includes('login') || txt.includes('oturumu aç');
+                            return txt.includes('giriş') || txt.includes('login') || txt.includes('oturumu aç') || txt.includes('tamam');
                         });
 
-                        const form = userInp.closest('form');
-
                         if (submitBtn) {
-                            console.log("[PORTAL] Submit butonu tıklandı.");
+                            console.log("[PORTAL] Giriş tıklandı.");
                             submitBtn.click();
-                        } else if (form) {
-                            console.log("[PORTAL] Form submit edildi.");
-                            form.submit();
                         } else {
-                            console.log("[PORTAL] Enter tuşu gönderildi.");
-                            passInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, keyCode: 13 }));
+                            console.log("[PORTAL] Enter gönderildi.");
+                            passInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, keyCode: 13, which: 13 }));
                         }
-                    }, 1000);
+                    }, 500);
                 }
 
-                if (attempts >= maxAttempts) {
-                    clearInterval(poll);
-                    if (!manual) console.log("[PORTAL] Zaman aşımı: Inputlar veya buton bulunamadı.");
-                }
+                if (attempts >= maxAttempts) clearInterval(poll);
             }, 500);
-
-        } catch (err) {
-            console.error("[PORTAL] Hata:", err);
-        }
+        } catch (err) { console.error("[PORTAL] Hata:", err); }
     };
 
     useEffect(() => {
