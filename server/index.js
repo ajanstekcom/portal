@@ -11,9 +11,9 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const zlib = require('zlib');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
-// Proxy agent from environment (Optional) - User can put any proxy URL here
-const proxyUrl = process.env.PROXY_URL; // e.g., http://user:pass@host:port
-const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
+// Proxy agent configuration (Using new Oxylabs credentials)
+const proxyUrl = process.env.PROXY_URL || 'http://user-ajanstek_oYp4b-country-US:PgF8Xkmle=STXap5@dc.oxylabs.io:8000';
+const proxyAgent = new HttpsProxyAgent(proxyUrl);
 
 const app = express();
 const cookieParser = require('cookie-parser');
