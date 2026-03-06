@@ -12,8 +12,9 @@ const zlib = require('zlib');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
 // Proxy agent configuration (Using new Oxylabs credentials)
+// rejectUnauthorized: false is added to avoid SSL issues between proxy and target
 const proxyUrl = process.env.PROXY_URL || 'http://user-ajanstek_oYp4b-country-US:PgF8Xkmle=STXap5@dc.oxylabs.io:8000';
-const proxyAgent = new HttpsProxyAgent(proxyUrl);
+const proxyAgent = new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
 
 const app = express();
 const cookieParser = require('cookie-parser');
@@ -74,6 +75,7 @@ const tunnelProxy = createProxyMiddleware({
             }
             proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
             proxyReq.setHeader('accept-encoding', 'identity'); // Disable compression for injection
+            proxyReq.setHeader('Connection', 'keep-alive');
         },
         proxyRes: (proxyRes, req, res) => {
             // Strip security headers always to allow iframing
