@@ -42,138 +42,23 @@ const SiteView = ({ siteId, user, onExit }) => {
         };
     }, [siteId]);
 
-    const runSmartLogin = async (manual = false) => {
-        const iframe = document.getElementById('tunnel-iframe');
-        if (!iframe) {
-            console.error("[PORTAL] Iframe bulunamadı!");
-            return;
-        }
-
-        console.log(`[PORTAL] SmartLogin başlatılıyor... (Manuel: ${manual})`);
-
-        try {
-            const res = await api.get(`/sites/${siteId}/credentials`, {
-                headers: { 'X-Portal-Internal': 'true' }
-            });
-            const { username, password } = res.data;
-            if (!username || !password) {
-                console.warn("[PORTAL] Kimlik bilgileri bulunamadı.");
-                return;
-            }
-
-            let attempts = 0;
-            const maxAttempts = manual ? 1 : 50;
-
-            const poll = setInterval(() => {
-                attempts++;
-                const doc = iframe.contentDocument || iframe.contentWindow.document;
-
-                if (!doc || doc.readyState === 'loading') {
-                    if (attempts >= maxAttempts) clearInterval(poll);
-                    return;
-                }
-
-                // --- CORS BYPASS INJECTION ---
-                if (!doc.getElementById('portal-cors-bypass')) {
-                    const script = doc.createElement('script');
-                    script.id = 'portal-cors-bypass';
-                    script.textContent = `
-                        (function() {
-                            const originalFetch = window.fetch;
-                            window.fetch = function(url, options) {
-                                if (typeof url === 'string' && url.startsWith('http') && !url.includes(window.location.host)) {
-                                    const proxyUrl = '/api/cors-proxy?url=' + encodeURIComponent(url);
-                                    return originalFetch(proxyUrl, options);
-                                }
-                                return originalFetch(url, options);
-                            };
-                            const originalOpen = XMLHttpRequest.prototype.open;
-                            XMLHttpRequest.prototype.open = function(method, url) {
-                                if (typeof url === 'string' && url.startsWith('http') && !url.includes(window.location.host)) {
-                                    url = '/api/cors-proxy?url=' + encodeURIComponent(url);
-                                }
-                                return originalOpen.apply(this, arguments);
-                            };
-                            console.log("[PORTAL] CORS Bypass aktif.");
-                        })();
-                    `;
-                    doc.head.prepend(script);
-                }
-
-                // --- SELECTORS ---
-                const userSelectors = ['input[type="text"]', 'input[type="email"]', 'input[name*="user" i]', 'input[id*="user" i]', 'input[placeholder*="eposta" i]', 'input[placeholder*="username" i]', 'input[placeholder*="Kullanıcı" i]'];
-                const passSelectors = ['input[type="password"]', 'input[name*="pass" i]', 'input[id*="id" i]', 'input[placeholder*="şifre" i]', 'input[placeholder*="password" i]'];
-
-                let userInp, passInp;
-                for (const s of userSelectors) { if (userInp = doc.querySelector(s)) break; }
-                for (const s of passSelectors) { if (passInp = doc.querySelector(s)) break; }
-
-                if (!userInp && !passInp) {
-                    const allButtons = Array.from(doc.querySelectorAll('button, a, span'));
-                    const loginBtn = allButtons.find(el => {
-                        const txt = el.textContent.toLowerCase();
-                        return txt.includes('admin girişi') || txt.includes('yönetici girişi') || txt.includes('giriş yap') || txt.includes('personel girişi');
-                    });
-
-                    if (loginBtn) {
-                        console.log("[PORTAL] Başlatma butonu bulundu, tıklanıyor...");
-                        loginBtn.click();
-                        clearInterval(poll);
-                        setTimeout(() => runSmartLogin(false), 1000);
-                        return;
-                    }
-                }
-
-                if (userInp && passInp) {
-                    console.log("[PORTAL] Form bulundu, dolduruluyor...");
-                    clearInterval(poll);
-
-                    const setNativeValue = (element, value) => {
-                        const prototype = Object.getPrototypeOf(element);
-                        const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-                        if (valueSetter) valueSetter.call(element, value);
-                        else element.value = value;
-                    };
-
-                    userInp.focus();
-                    setNativeValue(userInp, username);
-                    userInp.dispatchEvent(new Event('input', { bubbles: true }));
-                    userInp.dispatchEvent(new Event('change', { bubbles: true }));
-
-                    passInp.focus();
-                    setNativeValue(passInp, password);
-                    passInp.dispatchEvent(new Event('input', { bubbles: true }));
-                    passInp.dispatchEvent(new Event('change', { bubbles: true }));
-
-                    setTimeout(() => {
-                        const allBtns = Array.from(doc.querySelectorAll('button, input[type="submit"]'));
-                        const submitBtn = allBtns.find(el => {
-                            const txt = (el.textContent || el.value || '').toLowerCase();
-                            return txt.includes('giriş') || txt.includes('login') || txt.includes('oturumu aç') || txt.includes('tamam');
-                        });
-
-                        if (submitBtn) {
-                            console.log("[PORTAL] Giriş tıklandı.");
-                            submitBtn.click();
-                        } else {
-                            console.log("[PORTAL] Enter gönderildi.");
-                            passInp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, keyCode: 13, which: 13 }));
-                        }
-                    }, 500);
-                }
-
-                if (attempts >= maxAttempts) clearInterval(poll);
-            }, 500);
-        } catch (err) { console.error("[PORTAL] Hata:", err); }
-    };
+    // [USER FIX] Bot mantığı Dashboard'a taşındı. Burası sadece izleme yapar.
+    useEffect(() => {
+        const statusEvent = `site-status-${siteId}`;
+        socket.on(statusEvent, (data) => {
+            setStatus(data.status);
+        });
+        return () => {
+            socket.off(statusEvent);
+        };
+    }, [siteId]);
 
     useEffect(() => {
         const iframe = document.getElementById('tunnel-iframe');
         if (!iframe) return;
 
-        // [USER FIX] Otomatik girişi iptal ettik. Sadece "Botu Çalıştır" butonuyla çalışacak.
         const handleLoad = () => {
-            console.log("[PORTAL] Iframe yüklendi, bot manuel tetiklenmeyi bekliyor.");
+            console.log("[PORTAL] Iframe yüklendi.");
         };
         iframe.addEventListener('load', handleLoad);
 
@@ -210,13 +95,6 @@ const SiteView = ({ siteId, user, onExit }) => {
                 </div>
 
                 <div className="flex items-center gap-2 mr-2">
-                    <button
-                        onClick={() => runSmartLogin(true)}
-                        className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-indigo-500/20"
-                        title="Botu Manuel Çalıştır"
-                    >
-                        <MousePointer2 size={14} /> Botu Çalıştır
-                    </button>
                     <button onClick={refreshPage} className="p-2.5 hover:bg-slate-800 rounded-xl text-slate-400 bg-slate-950/50 border border-slate-800">
                         <RotateCw size={18} />
                     </button>

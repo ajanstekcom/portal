@@ -22,6 +22,7 @@ const Dashboard = ({ user, onLogout, onOpenSite }) => {
     const [focusSite, setFocusSite] = useState(null);
     const [copyStatus, setCopyStatus] = useState({});
     const [liveFrame, setLiveFrame] = useState(null);
+    const [botLoading, setBotLoading] = useState(null);
 
     const [newSiteName, setNewSiteName] = useState('');
     const [newSiteUrl, setNewSiteUrl] = useState('');
@@ -140,6 +141,17 @@ const Dashboard = ({ user, onLogout, onOpenSite }) => {
             setFocusSite(null);
         } catch (err) {
             alert('Site silinirken hata oluştu');
+        }
+    };
+
+    const handleRunBot = async (id) => {
+        setBotLoading(id);
+        try {
+            await api.get(`/sites/${id}/run-bot`);
+        } catch (err) {
+            alert('Bot başlatılamadı: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setBotLoading(null);
         }
     };
 
@@ -377,27 +389,43 @@ const Dashboard = ({ user, onLogout, onOpenSite }) => {
                                     )}
                                 </div>
 
-                                <button
-                                    disabled={actionLoading === focusSite.id}
-                                    onClick={async () => {
-                                        setActionLoading(focusSite.id);
-                                        try {
-                                            await api.get(`/sites/${focusSite.id}/open`);
-                                            onOpenSite(focusSite.id);
-                                        } catch (err) {
-                                            alert('Site başlatılamadı');
-                                        } finally {
-                                            setActionLoading(null);
-                                        }
-                                    }}
-                                    className={`w-full ${actionLoading === focusSite.id ? 'bg-slate-800 text-white' : 'bg-white text-black'} hover:bg-slate-100 font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all mt-8 active:scale-95`}
-                                >
-                                    {actionLoading === focusSite.id ? (
-                                        <>BAŞLATILIYOR... <RefreshCw className="animate-spin" size={20} /></>
-                                    ) : (
-                                        <>SİTEYİ AÇ VE OTOMATİK GİRİŞ YAP <Lock size={20} /></>
+                                <div className="flex flex-col gap-3 mt-8">
+                                    <button
+                                        disabled={actionLoading === focusSite.id}
+                                        onClick={async () => {
+                                            setActionLoading(focusSite.id);
+                                            try {
+                                                await api.get(`/sites/${focusSite.id}/open`);
+                                                onOpenSite(focusSite.id);
+                                            } catch (err) {
+                                                alert('Site başlatılamadı');
+                                            } finally {
+                                                setActionLoading(null);
+                                            }
+                                        }}
+                                        className={`w-full ${actionLoading === focusSite.id ? 'bg-slate-800 text-white' : 'bg-primary-600 text-white'} hover:bg-primary-500 font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg shadow-primary-500/20`}
+                                    >
+                                        {actionLoading === focusSite.id ? (
+                                            <>AÇILIYOR... <RefreshCw className="animate-spin" size={20} /></>
+                                        ) : (
+                                            <>SİTEYİ PENCEREDE AÇ <ExternalLink size={20} /></>
+                                        )}
+                                    </button>
+
+                                    {focusSite.requires_login && (
+                                        <button
+                                            disabled={botLoading === focusSite.id}
+                                            onClick={() => handleRunBot(focusSite.id)}
+                                            className={`w-full ${botLoading === focusSite.id ? 'bg-slate-800 text-white' : 'bg-white text-black'} hover:bg-slate-100 font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-95`}
+                                        >
+                                            {botLoading === focusSite.id ? (
+                                                <>BOT ÇALIŞIYOR... <RefreshCw className="animate-spin" size={20} /></>
+                                            ) : (
+                                                <>BİLGİLERİ DOLDUR (BOT) <MousePointer2 size={20} /></>
+                                            )}
+                                        </button>
                                     )}
-                                </button>
+                                </div>
                                 <div className="mt-4">
                                     <p className="text-[10px] text-slate-500 text-center font-bold uppercase tracking-widest leading-normal">
                                         Site güvenli bir tünel üzerinden iframe içine gömülerek açılır.<br />

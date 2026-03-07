@@ -144,6 +144,22 @@ router.get('/:id/open', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+router.get('/:id/run-bot', async (req, res) => {
+    try {
+        const site = await db('sites').where({ id: req.params.id, user_id: req.user.id }).first();
+        if (!site) return res.status(404).json({ error: 'Site bulunamadı' });
+
+        const session = global.activePages.get(site.id.toString());
+        if (!session || !session.page) {
+            return res.status(400).json({ error: 'Site oturumu aktif değil. Önce siteyi açmalısınız.' });
+        }
+
+        console.log(`[BOT] Manuel giriş başlatılıyor: ${site.name}`);
+        performSmartLogin(session.page, site, site.id);
+        res.json({ message: 'Bot başlatıldı...' });
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 router.post('/', async (req, res) => {
     try {
         const { name, url, requires_login, site_username, site_password } = req.body;
@@ -242,7 +258,8 @@ async function openInteractiveBrowser(site) {
         // Sayfa boşsa veya yanlış yerdeyse yönlendir
         if (page.url() === 'about:blank' || !page.url().includes(site.url)) {
             console.log(`[BROWSER] ${site.name} için sayfaya gidiliyor...`);
-            await page.goto(site.url, { waitUntil: 'networkidle2', timeout: 60000 }).catch(e => {
+            // FIX [ERR_ABORTED]: networkidle2 yerine 'load' (veya domcontentloaded) kullanarak yavaş/karmaşık sitelerde patlamayı önle
+            await page.goto(site.url, { waitUntil: 'load', timeout: 60000 }).catch(e => {
                 console.warn(`[BROWSER] Sayfa yükleme uyarısı: ${e.message}`);
             });
         }
