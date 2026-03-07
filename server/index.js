@@ -112,14 +112,17 @@ const tunnelProxy = createProxyMiddleware({
             }
 
             try {
+                if (res.headersSent) return;
                 proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
                 proxyReq.setHeader('accept-encoding', 'identity');
 
                 if (req.body && Object.keys(req.body).length > 0) {
                     const bodyData = JSON.stringify(req.body);
-                    proxyReq.setHeader('Content-Type', 'application/json');
-                    proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-                    proxyReq.write(bodyData);
+                    if (!res.headersSent) {
+                        proxyReq.setHeader('Content-Type', 'application/json');
+                        proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+                        proxyReq.write(bodyData);
+                    }
                 }
             } catch (e) {
                 console.error(`[PROXY] proxyReq hatası: ${e.message}`);
@@ -284,6 +287,8 @@ app.get(/.*/, (req, res) => {
 
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
+        // [CACHE FIX] Force browser to always reload index.html to avoid stale asset hashes
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
         res.sendFile(indexPath);
     } else {
         const errorMsg = `[SPA] CRITICAL: index.html not found at ${indexPath}. Dist exists: ${fs.existsSync(distPath)}`;
