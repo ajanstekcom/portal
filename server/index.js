@@ -16,9 +16,23 @@ const siteRoutes = require('./sites');
 const distPath = path.resolve(__dirname, '../client/dist');
 const screenshotsPath = path.resolve(__dirname, '../public/screenshots');
 
-console.log(`[BOOT] Static Files: ${distPath}`);
-console.log(`[BOOT] Screenshots: ${screenshotsPath}`);
-console.log(`[BOOT] index.html: ${fs.existsSync(path.join(distPath, 'index.html')) ? 'OK' : 'MISSING'}`);
+console.log(`[BOOT] Static Files Path: ${distPath}`);
+console.log(`[BOOT] Screenshots Path: ${screenshotsPath}`);
+
+// Diagnostic: Check if files exist
+try {
+    if (fs.existsSync(distPath)) {
+        const files = fs.readdirSync(distPath);
+        console.log(`[BOOT] Dist folder contents: ${files.join(', ')}`);
+        if (files.includes('assets')) {
+            console.log(`[BOOT] Assets folder contents: ${fs.readdirSync(path.join(distPath, 'assets')).join(', ')}`);
+        }
+    } else {
+        console.warn(`[BOOT] WARNING: Dist folder NOT FOUND at ${distPath}`);
+    }
+} catch (e) {
+    console.error(`[BOOT] Diagnostic error: ${e.message}`);
+}
 
 const app = express();
 const http = require('http').createServer(app);
@@ -208,9 +222,8 @@ apiRouter.use('/sites', siteRoutes);
 
 app.use('/api', apiRouter);
 
-// Static files serving
+// Static files serving - Simplified and Prioritized
 app.use('/screenshots', express.static(screenshotsPath));
-app.use('/assets', express.static(path.join(distPath, 'assets')));
 app.use(express.static(distPath));
 
 // Tunnel routes
@@ -235,7 +248,7 @@ app.get(/.*/, (req, res) => {
         res.sendFile(indexPath);
     } else {
         console.error(`[SPA] index.html bulunamadı! Yol: ${indexPath}`);
-        res.status(404).send('Application Build Not Found. Please run "npm run build" or check deployment.');
+        res.status(404).send('Application Build Not Found. Please check deployment or run build.');
     }
 });
 
