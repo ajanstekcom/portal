@@ -2,6 +2,15 @@ require('dotenv').config();
 const PORT_CONFIG = process.env.PORT || 5173;
 console.log(`[BOOT] Server başlatılıyor... Port: ${PORT_CONFIG} | Saat: ${new Date().toISOString()}`);
 
+// GLOBAL ERROR HANDLERS (CRASH ÖNLEME)
+process.on('uncaughtException', (err) => {
+    console.error(`[CRASH] Uncaught Exception: ${err.message}`);
+    console.error(err.stack);
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[CRASH] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -52,7 +61,11 @@ let dbInitialized = false;
 const proxyUrl = process.env.PROXY_URL || 'http://user-ajanstek_oYp4b-country-US:PgF8Xkmle=STXap5@dc.oxylabs.io:8000';
 const proxyAgent = new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
 
-// 0. Global Logger
+// 0. Static Files (Kritik: En üstte olsun ki hiçbir şeyle çakışmasın)
+app.use('/screenshots', express.static(screenshotsPath));
+app.use(express.static(distPath));
+
+// 1. Global Logger
 app.use((req, res, next) => {
     console.log(`[REQ] ${req.method} ${req.url}`);
     next();
@@ -113,10 +126,15 @@ const tunnelProxy = createProxyMiddleware({
             }
         },
         proxyRes: (proxyRes, req, res) => {
-            delete proxyRes.headers['x-frame-options'];
-            delete proxyRes.headers['content-security-policy'];
-            const siteId = req.params.id || req.cookies.portal_tunnel_id;
-            if (siteId) res.cookie('portal_tunnel_id', siteId, { path: '/', sameSite: 'lax' });
+            try {
+                if (res.headersSent) return;
+                delete proxyRes.headers['x-frame-options'];
+                delete proxyRes.headers['content-security-policy'];
+                const siteId = req.params.id || req.cookies.portal_tunnel_id;
+                if (siteId) res.cookie('portal_tunnel_id', siteId, { path: '/', sameSite: 'lax' });
+            } catch (e) {
+                console.error(`[PROXY] proxyRes hatası: ${e.message}`);
+            }
         }
     },
     pathRewrite: (path, req) => {
@@ -217,14 +235,35 @@ apiRouter.all('/cors-proxy', (req, res, next) => {
 
 // Auth & Sites (Needs DB)
 apiRouter.use((req, res, next) => waitForDb(req, res, next));
+
+// Diagnostic Route: Check produced files (Production ONLY helper)
+apiRouter.get('/debug-files', (req, res) => {
+    try {
+        const distExists = fs.existsSync(distPath);
+        const distFiles = distExists ? fs.readdirSync(distPath) : [];
+        const assetsPath = path.join(distPath, 'assets');
+        const assetsFiles = fs.existsSync(assetsPath) ? fs.readdirSync(assetsPath) : [];
+
+        res.json({
+            distPath,
+            exists: distExists,
+            files: distFiles,
+            assets: assetsFiles,
+            cwd: process.cwd(),
+            dirname: __dirname,
+            env: process.env.NODE_ENV
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 apiRouter.use('/auth', authRoutes);
 apiRouter.use('/sites', siteRoutes);
 
 app.use('/api', apiRouter);
 
-// Static files serving - Simplified and Prioritized
-app.use('/screenshots', express.static(screenshotsPath));
-app.use(express.static(distPath));
+// (Statik dosyalar en üste taşındı)
 
 // Tunnel routes
 app.use('/tunnel/:id', (req, res, next) => {
@@ -247,8 +286,9 @@ app.get(/.*/, (req, res) => {
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
     } else {
-        console.error(`[SPA] index.html bulunamadı! Yol: ${indexPath}`);
-        res.status(404).send('Application Build Not Found. Please check deployment or run build.');
+        const errorMsg = `[SPA] CRITICAL: index.html not found at ${indexPath}. Dist exists: ${fs.existsSync(distPath)}`;
+        console.error(errorMsg);
+        res.status(404).send(errorMsg);
     }
 });
 
