@@ -247,11 +247,8 @@ async function openInteractiveBrowser(site) {
             });
         }
 
-        if (site.requires_login) {
-            await performSmartLogin(page, site, site.id);
-        } else {
-            await broadcastFrame(page, site.id);
-        }
+        // [USER FIX] Artık girişi otomatik başlatmıyoruz, kullanıcı butona basınca başlatacak.
+        await broadcastFrame(page, site.id);
 
         // Sayfa kaydını güncelle
         global.activePages.set(site.id.toString(), {

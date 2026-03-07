@@ -171,11 +171,11 @@ const SiteView = ({ siteId, user, onExit }) => {
         const iframe = document.getElementById('tunnel-iframe');
         if (!iframe) return;
 
-        const handleLoad = () => runSmartLogin(false);
+        // [USER FIX] Otomatik girişi iptal ettik. Sadece "Botu Çalıştır" butonuyla çalışacak.
+        const handleLoad = () => {
+            console.log("[PORTAL] Iframe yüklendi, bot manuel tetiklenmeyi bekliyor.");
+        };
         iframe.addEventListener('load', handleLoad);
-
-        // İlk açılışta da dene
-        runSmartLogin(false);
 
         return () => iframe.removeEventListener('load', handleLoad);
     }, [siteId]);
