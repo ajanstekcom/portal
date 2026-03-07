@@ -199,11 +199,12 @@ router.delete('/:id', async (req, res) => {
 async function openInteractiveBrowser(site) {
     // FIXED: Early session registration to prevent race condition with tunnel proxy
     global.activePages.set(site.id.toString(), {
-        status: 'loading',
+        status: 'Aktif',
         initialUrl: site.url,
         siteUrl: site.url,
         lastActivity: Date.now()
     });
+    updateStatus(site.id.toString(), 'Bağlı');
 
     let browser;
     const port = 9100 + (parseInt(site.id) % 500);
@@ -264,7 +265,6 @@ async function openInteractiveBrowser(site) {
             });
         }
 
-        // [USER FIX] Artık girişi otomatik başlatmıyoruz, kullanıcı butona basınca başlatacak.
         await broadcastFrame(page, site.id);
 
         // Sayfa kaydını güncelle

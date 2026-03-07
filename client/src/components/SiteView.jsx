@@ -43,17 +43,6 @@ const SiteView = ({ siteId, user, onExit }) => {
         };
     }, [siteId]);
 
-    // [USER FIX] Bot mantığı Dashboard'a taşındı. Burası sadece izleme yapar.
-    useEffect(() => {
-        const statusEvent = `site-status-${siteId}`;
-        socket.on(statusEvent, (data) => {
-            setStatus(data.status);
-        });
-        return () => {
-            socket.off(statusEvent);
-        };
-    }, [siteId]);
-
     useEffect(() => {
         const iframe = document.getElementById('tunnel-iframe');
         if (!iframe) return;
@@ -135,15 +124,7 @@ const SiteView = ({ siteId, user, onExit }) => {
                 />
 
                 {/* Status Overlay (Fade out if connected) */}
-                {status !== 'Tamamlandı' && status !== 'Ziyaret Edildi' && (
-                    <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl flex flex-col items-center justify-center gap-8 z-20">
-                        <div className="w-16 h-16 border-4 border-primary-500 border-t-transparent rounded-full animate-spin shadow-[0_0_30px_-5px_rgba(59,130,246,0.5)]"></div>
-                        <div className="text-center">
-                            <h2 className="text-2xl font-black mb-2 tracking-tighter uppercase">{status}</h2>
-                            <p className="text-slate-500 text-sm font-medium">Bütün bilgileriniz güvenle aktarılıyor...</p>
-                        </div>
-                    </div>
-                )}
+                {/* [USER REMOVED]: Artık siteyi asla kapatmıyoruz, direkt açılıyor. */}
             </div>
 
             {/* User Info Overlay (Bottom Right) */}
