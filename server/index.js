@@ -51,9 +51,12 @@ const io = require('socket.io')(http, {
 global.io = io;
 
 io.on('connection', (socket) => {
-    console.log(`[IO] Yeni bağlantı: ${socket.id} | Origin: ${socket.handshake.headers.origin}`);
+    console.log(`[IO] Yeni bağlantı: ${socket.id}`);
     socket.on('disconnect', () => console.log(`[IO] Bağlantı kesildi: ${socket.id}`));
 });
+
+// [CRITICAL] Initialize globals before they are used by routers
+global.activePages = new Map();
 
 let dbInitialized = false;
 
@@ -274,7 +277,7 @@ app.use('/tunnel/:id', (req, res, next) => {
     next();
 }, tunnelProxy);
 
-global.activePages = new Map();
+// (global.activePages moved to top)
 
 // Catch-all SPA
 app.get(/.*/, (req, res) => {

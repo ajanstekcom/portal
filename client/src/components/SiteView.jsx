@@ -13,6 +13,7 @@ const SiteView = ({ siteId, user, onExit }) => {
     const [site, setSite] = useState(null);
     const [liveFrame, setLiveFrame] = useState(null);
     const [status, setStatus] = useState('Başlatılıyor...');
+    const [botLoading, setBotLoading] = useState(false);
     const containerRef = useRef(null);
 
     useEffect(() => {
@@ -70,6 +71,17 @@ const SiteView = ({ siteId, user, onExit }) => {
         if (iframe) iframe.src = iframe.src;
     };
 
+    const runBot = async () => {
+        setBotLoading(true);
+        try {
+            await api.get(`/sites/${siteId}/run-bot`);
+        } catch (e) {
+            alert('Bot başlatılamadı: ' + (e.response?.data?.error || e.message));
+        } finally {
+            setBotLoading(false);
+        }
+    };
+
     if (!site) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white">Yükleniyor...</div>;
 
     return (
@@ -95,6 +107,14 @@ const SiteView = ({ siteId, user, onExit }) => {
                 </div>
 
                 <div className="flex items-center gap-2 mr-2">
+                    <button
+                        onClick={runBot}
+                        disabled={botLoading}
+                        className={`flex items-center gap-2 ${botLoading ? 'bg-slate-800' : 'bg-indigo-600 hover:bg-indigo-500'} px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-indigo-500/20`}
+                        title="Botu Manuel Çalıştır"
+                    >
+                        <MousePointer2 size={14} /> {botLoading ? 'Çalışıyor...' : 'Botu Çalıştır'}
+                    </button>
                     <button onClick={refreshPage} className="p-2.5 hover:bg-slate-800 rounded-xl text-slate-400 bg-slate-950/50 border border-slate-800">
                         <RotateCw size={18} />
                     </button>
