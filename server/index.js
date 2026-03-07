@@ -13,6 +13,13 @@ const { initDb } = require('./db');
 const authRoutes = require('./auth');
 const siteRoutes = require('./sites');
 
+const distPath = path.resolve(__dirname, '../client/dist');
+const screenshotsPath = path.resolve(__dirname, '../public/screenshots');
+
+console.log(`[BOOT] Static Files: ${distPath}`);
+console.log(`[BOOT] Screenshots: ${screenshotsPath}`);
+console.log(`[BOOT] index.html: ${fs.existsSync(path.join(distPath, 'index.html')) ? 'OK' : 'MISSING'}`);
+
 const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http, {
@@ -154,10 +161,11 @@ apiRouter.all('/cors-proxy', (req, res, next) => {
     timeout: 120000,
     on: {
         error: (err, req, res) => {
-            if (!res.headersSent) res.status(err.code === 'ETIMEDOUT' ? 504 : 502).send(`CORS Proxy Error: ${err.message}`);
+            if (res.headersSent) return; // Robust head-sent check
+            res.status(err.code === 'ETIMEDOUT' ? 504 : 502).send(`CORS Proxy Error: ${err.message}`);
         },
         proxyReq: (proxyReq, req, res) => {
-            if (res.headersSent) return;
+            if (res.headersSent) return; // Robust head-sent check
 
             const targetUrl = req.headers['x-target-url'] || req.query.url;
             if (targetUrl) {
@@ -177,7 +185,8 @@ apiRouter.all('/cors-proxy', (req, res, next) => {
                 }
             }
         },
-        proxyRes: (proxyRes) => {
+        proxyRes: (proxyRes, req, res) => {
+            if (res.headersSent) return; // Robust head-sent check
             proxyRes.headers['access-control-allow-origin'] = '*';
             proxyRes.headers['access-control-allow-methods'] = '*';
             proxyRes.headers['access-control-allow-headers'] = '*';
@@ -199,9 +208,7 @@ apiRouter.use('/sites', siteRoutes);
 
 app.use('/api', apiRouter);
 
-// Static files
-const distPath = path.resolve(__dirname, '../client/dist');
-const screenshotsPath = path.resolve(__dirname, '../public/screenshots');
+// Static files serving
 app.use('/screenshots', express.static(screenshotsPath));
 app.use('/assets', express.static(path.join(distPath, 'assets')));
 app.use(express.static(distPath));
@@ -217,10 +224,19 @@ global.activePages = new Map();
 // Catch-all SPA
 app.get(/.*/, (req, res) => {
     const isAsset = req.path.includes('.') && !req.path.endsWith('.html');
-    if (req.url.startsWith('/api/') || req.url.startsWith('/socket.io/') || isAsset) return res.status(404).send('Not found');
+
+    // API ve Socket.io rotalarını SPA olarak yakalama
+    if (req.url.startsWith('/api/') || req.url.startsWith('/socket.io/') || isAsset) {
+        return res.status(404).send(`Not found: ${req.url}`);
+    }
+
     const indexPath = path.join(distPath, 'index.html');
-    if (fs.existsSync(indexPath)) res.sendFile(indexPath);
-    else res.status(404).send('Build not found');
+    if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        console.error(`[SPA] index.html bulunamadı! Yol: ${indexPath}`);
+        res.status(404).send('Application Build Not Found. Please run "npm run build" or check deployment.');
+    }
 });
 
 http.listen(PORT_CONFIG, '0.0.0.0', () => {
