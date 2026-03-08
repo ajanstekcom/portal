@@ -28,20 +28,19 @@ const proxyAgent = new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
 // Middleware
 app.use(cors());
 app.use(cookieParser());
+
+// Robust express.json (skip for tunnel/proxy)
 app.use((req, res, next) => {
     if (req.url.startsWith('/tunnel/')) return next();
     express.json({ limit: '10mb' })(req, res, next);
 });
 
-// Tunnel Proxy Logic with HTML Rewriting & Encoding Fix
+// Tunnel Proxy Logic with HTML Rewriting & Decompression
 const tunnelProxy = createProxyMiddleware({
     target: 'http://localhost',
     router: async (req) => {
-        let siteId = req.params?.id;
-        if (!siteId) {
-            const parts = req.url.split('/');
-            siteId = parts[2];
-        }
+        const parts = req.url.split('/');
+        const siteId = parts[2];
         if (!siteId) return null;
 
         let session = global.activePages.get(siteId.toString());
@@ -63,10 +62,10 @@ const tunnelProxy = createProxyMiddleware({
     autoRewrite: true,
     followRedirects: true,
     agent: proxyAgent,
-    selfHandleResponse: true,
+    selfHandleResponse: true, // Crucial for HTML rewriting
     on: {
         proxyReq: (proxyReq, req, res) => {
-            // [CRITICAL] Disable target compression to allow HTML modification without "White Screen" or garbage text
+            // [CRITICAL] Disable compression to allow body modification
             proxyReq.setHeader('accept-encoding', 'identity');
         },
         error: (err, req, res) => {
@@ -74,21 +73,23 @@ const tunnelProxy = createProxyMiddleware({
             res.status(502).send(`Tunnel Error: ${err.message}`);
         },
         proxyRes: (proxyRes, req, res) => {
-            const siteId = req.params?.id || req.url.split('/')[2];
+            const siteId = req.url.split('/')[2];
             const contentType = proxyRes.headers['content-type'] || '';
 
+            // Clean security headers
             const headers = { ...proxyRes.headers };
             delete headers['x-frame-options'];
             delete headers['content-security-policy'];
             delete headers['frame-options'];
 
+            // Only rewrite HTML to inject <base> tag
             if (contentType.includes('text/html')) {
                 let body = [];
                 proxyRes.on('data', chunk => body.push(chunk));
                 proxyRes.on('end', () => {
                     body = Buffer.concat(body).toString();
 
-                    // Inject <base> tag so browser looks for relative files in /tunnel/ID/
+                    // Inject <base> tag so all relative links use the tunnel prefix
                     const baseTag = `<base href="/tunnel/${siteId}/">`;
                     if (body.includes('<head>')) {
                         body = body.replace('<head>', `<head>${baseTag}`);
@@ -99,11 +100,11 @@ const tunnelProxy = createProxyMiddleware({
                     }
 
                     res.set(headers);
-                    // Update content-length since we added a tag
                     res.set('content-length', Buffer.byteLength(body));
                     res.send(body);
                 });
             } else {
+                // Pipe assets directly
                 res.set(headers);
                 proxyRes.pipe(res);
             }
@@ -112,7 +113,6 @@ const tunnelProxy = createProxyMiddleware({
     pathRewrite: (path, req) => {
         if (path.startsWith('/tunnel/')) {
             const parts = path.split('/');
-            const id = parts[2];
             const rest = parts.slice(3).join('/') || '';
             return `/${rest}`;
         }
@@ -127,7 +127,7 @@ app.use(express.static(distPath));
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
 
-// 3. Tunnel Route
+// 3. Tunnel Route (The ONLY place proxying happens)
 app.use('/tunnel/:id', tunnelProxy);
 
 // 4. Catch-all SPA
