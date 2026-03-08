@@ -25,39 +25,45 @@ let dbInitialized = false;
 const proxyUrl = process.env.PROXY_URL || 'http://user-ajanstek_oYp4b-country-US:PgF8Xkmle=STXap5@dc.oxylabs.io:8000';
 const proxyAgent = new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
 
-// Middleware
+// Middleware Setup
 app.use(cors());
 app.use(cookieParser());
 
-// Robust express.json (skip for tunnel/proxy)
+// Robust express.json (SKIP for tunnel/proxy paths)
 app.use((req, res, next) => {
     if (req.url.startsWith('/tunnel/')) return next();
     express.json({ limit: '10mb' })(req, res, next);
 });
 
-// Tunnel Proxy Logic with HTML Rewriting & Encoding Fix
-const tunnelProxy = createProxyMiddleware({
-    target: 'http://localhost',
-    router: async (req) => {
-        // [FIX] Correctly extract siteId from params or URL path
-        let siteId = req.params?.id;
-        if (!siteId) {
-            // Fallback for cases where it's called as a middleware without params
-            const parts = req.originalUrl.split('/');
-            if (parts[1] === 'tunnel') siteId = parts[2];
-        }
+// Helper to extract Site ID robustly
+const getSiteId = (req) => {
+    if (req.params?.id) return req.params.id;
+    // Fallback detection from path: /tunnel/ID/...
+    const parts = (req.originalUrl || req.url).split('/');
+    if (parts[1] === 'tunnel' && parts[2]) return parts[2];
+    return null;
+};
 
+// Tunnel Proxy Definition
+const tunnelProxy = createProxyMiddleware({
+    target: 'http://localhost', // Fallback
+    router: async (req) => {
+        const siteId = getSiteId(req) || req.cookies?.portal_tunnel_id;
         if (!siteId) return null;
 
         let session = global.activePages.get(siteId.toString());
         if (!session && dbInitialized) {
             try {
-                const site = await db('sites').where({ id: siteId }).first();
+                const site = await db('sites').where({ id: parseInt(siteId) }).first();
                 if (site) {
                     session = { url: site.url };
                     global.activePages.set(siteId.toString(), session);
+                    console.log(`[BOOT-PROXY] Session restored: ${site.url}`);
                 }
-            } catch (e) { return null; }
+            } catch (e) {
+                console.error(`[PROXY-DB-ERR] ${e.message}`);
+                return null;
+            }
         }
 
         if (!session) return null;
@@ -68,19 +74,19 @@ const tunnelProxy = createProxyMiddleware({
     autoRewrite: true,
     followRedirects: true,
     agent: proxyAgent,
-    selfHandleResponse: true, // Crucial for injecting <base>
+    selfHandleResponse: true, // For HTML base tag injection
     on: {
         proxyReq: (proxyReq, req, res) => {
-            // [CRITICAL] Force identity encoding to prevent compressed body corruption
+            // [CRITICAL] Force raw identity encoding to avoid compression corruption
             proxyReq.setHeader('accept-encoding', 'identity');
         },
         error: (err, req, res) => {
+            console.error(`[PROXY-ERR] ${req.url} -> ${err.message}`);
             if (res.headersSent) return;
             res.status(502).send(`Tunnel Error: ${err.message}`);
         },
         proxyRes: (proxyRes, req, res) => {
-            const parts = req.originalUrl.split('/');
-            const siteId = parts[2] || req.params?.id;
+            const siteId = getSiteId(req) || req.cookies?.portal_tunnel_id;
             const contentType = proxyRes.headers['content-type'] || '';
 
             // Collect headers and strip security
@@ -95,14 +101,16 @@ const tunnelProxy = createProxyMiddleware({
                 proxyRes.on('end', () => {
                     let body = Buffer.concat(bodyChunks).toString();
 
-                    // [BEHAVIOR] Inject <base> tag so all relative assets map to /tunnel/ID/
-                    const baseTag = `<base href="/tunnel/${siteId}/">`;
-                    if (body.includes('<head>')) {
-                        body = body.replace('<head>', `<head>${baseTag}`);
-                    } else if (body.includes('<html>')) {
-                        body = body.replace('<html>', `<html><head>${baseTag}</head>`);
-                    } else {
-                        body = baseTag + body;
+                    // Inject <base> tag so all relative links use the tunnel prefix
+                    if (siteId) {
+                        const baseTag = `<base href="/tunnel/${siteId}/">`;
+                        if (body.includes('<head>')) {
+                            body = body.replace('<head>', `<head>${baseTag}`);
+                        } else if (body.includes('<html>')) {
+                            body = body.replace('<html>', `<html><head>${baseTag}</head>`);
+                        } else {
+                            body = baseTag + body;
+                        }
                     }
 
                     res.set(headers);
@@ -110,14 +118,18 @@ const tunnelProxy = createProxyMiddleware({
                     res.send(body);
                 });
             } else {
-                // Pipe non-HTML assets directly
+                // Pipe non-HTML directly
                 res.set(headers);
                 proxyRes.pipe(res);
+            }
+
+            // Set cookie for sub-resource routing
+            if (siteId && !res.headersSent) {
+                res.cookie('portal_tunnel_id', siteId.toString(), { path: '/', sameSite: 'lax', maxAge: 3600000 });
             }
         }
     },
     pathRewrite: (path, req) => {
-        // Rewrite /tunnel/ID/path -> /path
         if (path.startsWith('/tunnel/')) {
             const parts = path.split('/');
             const rest = parts.slice(3).join('/') || '';
@@ -127,24 +139,32 @@ const tunnelProxy = createProxyMiddleware({
     }
 });
 
-// [1] Static Files (Portal)
-app.use(express.static(distPath));
+// --- ROUTES ---
 
-// [2] API Routes
+// 1. API - Highest priority
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
 
-// [3] Tunnel Route (The ONLY proxy entry)
+// 2. Explicit Tunnel Route
 app.use('/tunnel/:id', tunnelProxy);
 
-// [4] Catch-all SPA
+// 3. Static Files (Portal Assets)
+app.use(express.static(distPath));
+
+// 4. Catch-all SPA Fallback
 app.use((req, res) => {
+    // SECURITY: If it was a tunnel request that reached here, it means proxy failed.
+    // Return 404 instead of recursive Portal view.
+    if (req.originalUrl.startsWith('/tunnel/')) {
+        return res.status(502).send('Proxy rendering failed or site session expired. Please refresh.');
+    }
+
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
         res.sendFile(indexPath);
     } else {
-        res.status(404).send('Portal build not found.');
+        res.status(404).send('Portal build not found. Please build the client.');
     }
 });
 
