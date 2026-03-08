@@ -82,7 +82,7 @@ const tunnelProxy = createProxyMiddleware({
     agent: proxyAgent,
     selfHandleResponse: true,
     headers: {
-        'accept-encoding': 'identity' // [FIX] Set statically to avoid ERR_HTTP_HEADERS_SENT
+        'accept-encoding': 'identity'
     },
     on: {
         error: (err, req, res) => {
@@ -95,31 +95,44 @@ const tunnelProxy = createProxyMiddleware({
             const siteId = getSiteId(req) || req.cookies?.portal_tunnel_id;
             const contentType = proxyRes.headers['content-type'] || '';
 
-            // Clean security headers
             const headers = { ...proxyRes.headers };
             delete headers['x-frame-options'];
             delete headers['content-security-policy'];
             delete headers['frame-options'];
 
-            if (contentType.includes('text/html')) {
+            // Rewrite HTML and Javascript to fix absolute paths and hardcoded URLs
+            const shouldRewrite = contentType.includes('text/html') ||
+                contentType.includes('javascript') ||
+                contentType.includes('text/css');
+
+            if (shouldRewrite) {
                 let bodyChunks = [];
                 proxyRes.on('data', chunk => bodyChunks.push(chunk));
                 proxyRes.on('end', () => {
                     let body = Buffer.concat(bodyChunks).toString();
 
                     if (siteId) {
-                        // 1. Inject <base> for relative paths
-                        const baseTag = `<base href="/tunnel/${siteId}/">`;
-                        if (body.includes('<head>')) {
-                            body = body.replace('<head>', `<head>${baseTag}`);
-                        } else if (body.includes('<html>')) {
-                            body = body.replace('<html>', `<html><head>${baseTag}</head>`);
-                        } else {
-                            body = baseTag + body;
+                        // 1. Inject <base> (HTML ONLY)
+                        if (contentType.includes('text/html')) {
+                            const baseTag = `<base href="/tunnel/${siteId}/">`;
+                            if (body.includes('<head>')) {
+                                body = body.replace('<head>', `<head>${baseTag}`);
+                            } else if (body.includes('<html>')) {
+                                body = body.replace('<html>', `<html><head>${baseTag}</head>`);
+                            } else {
+                                body = baseTag + body;
+                            }
                         }
 
-                        // 2. Rewrite absolute asset paths (Fixes 404s for /assets/...)
-                        body = body.replace(/(src|href)=["']\/(assets|static|media|wp-content|wp-includes|@vite|@react-refresh|node_modules|src)\//g, `$1="/tunnel/${siteId}/$2/`);
+                        // 2. Rewrite Hardcoded Dev URLs (e.g. localhost:3000)
+                        body = body.replace(/http:\/\/localhost:3000/g, `/tunnel/${siteId}`);
+
+                        // 3. Rewrite Absolute API & Asset Paths (src, href, url, fetch quotes)
+                        // This covers: /api/, /assets/, /static/, /wp-json/, etc.
+                        body = body.replace(/(src|href|url|fetch|axios|get|post)=["']\/(api|assets|static|media|wp-content|wp-includes|@vite|@react-refresh|node_modules|src|wp-json)\//g, `$1="/tunnel/${siteId}/$2/`);
+
+                        // 4. Broad regex for absolute paths in JS strings (e.g. "/api/login")
+                        body = body.replace(/["']\/(api|assets|static|media|wp-content|wp-includes|wp-json)\//g, `"/tunnel/${siteId}/$1/`);
                     }
 
                     if (!res.headersSent) {
@@ -157,20 +170,19 @@ app.use('/api/sites', siteRoutes);
 app.use('/tunnel/:id', tunnelProxy);
 app.use(express.static(distPath));
 
-// Global Interceptor for Stray Assets
+// Global Interceptor for Stray Assets & APIs (The "Auto-Tunnel" catch-all)
 app.use((req, res, next) => {
     const siteId = req.cookies.portal_tunnel_id;
     if (!siteId) return next();
 
+    // If it's a request that isn't handled by Portal, and it looks like a site sub-request
     const url = req.url;
-    const isAsset =
-        url.startsWith('/assets/') ||
-        url.startsWith('/static/') ||
-        url.startsWith('/media/') ||
-        url.includes('.js') ||
-        url.includes('.css');
+    const isPortalRoute = url.startsWith('/api/auth') || url.startsWith('/api/sites') || url.startsWith('/screenshots');
 
-    if (isAsset) {
+    // Ignore images, manifests etc. unless we want to catch them all?
+    // Let's be aggressive for everything that is NOT a portal route.
+    if (!isPortalRoute) {
+        console.log(`[INTERCEPT] Routing stray request through tunnel ${siteId}: ${url}`);
         return tunnelProxy(req, res, next);
     }
     next();
@@ -178,10 +190,6 @@ app.use((req, res, next) => {
 
 // Catch-all SPA
 app.use((req, res) => {
-    if (req.originalUrl.startsWith('/tunnel/')) {
-        return res.status(502).send('Proxy failure.');
-    }
-
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
