@@ -29,7 +29,7 @@ const proxyAgent = new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
 app.use(cors());
 app.use(cookieParser());
 
-// Robust express.json (skip for tunnel/proxy)
+// Robust express.json (SKIP for tunnel/proxy to avoid body parsing issues)
 app.use((req, res, next) => {
     const isTunnel = req.url.startsWith('/tunnel/') || req.cookies.portal_tunnel_id;
     if (isTunnel && !req.url.startsWith('/api')) return next();
@@ -40,7 +40,13 @@ app.use((req, res, next) => {
 const tunnelProxy = createProxyMiddleware({
     target: 'http://localhost',
     router: async (req) => {
-        const siteId = req.params.id || req.cookies.portal_tunnel_id;
+        // Fallback siteId detection from URL if params are missing
+        let siteId = req.params?.id || req.cookies?.portal_tunnel_id;
+        if (!siteId && req.url.startsWith('/tunnel/')) {
+            const parts = req.url.split('/');
+            siteId = parts[2];
+        }
+
         if (!siteId) return null;
 
         let session = global.activePages.get(siteId.toString());
@@ -51,63 +57,94 @@ const tunnelProxy = createProxyMiddleware({
                 if (site) {
                     session = { url: site.url };
                     global.activePages.set(siteId.toString(), session);
+                    console.log(`[PROXY] Session restored for site ${siteId}: ${site.url}`);
                 }
-            } catch (e) { return null; }
+            } catch (e) {
+                console.error(`[PROXY] DB Session Fetch Error: ${e.message}`);
+                return null;
+            }
         }
 
-        if (!session) return null;
-        try { return new URL(session.url).origin; } catch (e) { return null; }
+        if (!session) {
+            console.warn(`[PROXY] No session found for ID: ${siteId}`);
+            return null;
+        }
+
+        try {
+            const target = new URL(session.url).origin;
+            console.log(`[PROXY] Routing ${req.url} -> ${target}`);
+            return target;
+        } catch (e) {
+            console.error(`[PROXY] Invalid URL in session: ${session.url}`);
+            return null;
+        }
     },
     changeOrigin: true,
     secure: false,
     autoRewrite: true,
+    headers: {
+        'Connection': 'keep-alive'
+    },
     followRedirects: true,
     agent: proxyAgent,
     on: {
         error: (err, req, res) => {
+            console.error(`[PROXY ERROR] ${req.url} -> ${err.message}`);
             if (res.headersSent) return;
             res.status(502).send(`Tunnel Error: ${err.message}`);
         },
         proxyRes: (proxyRes, req, res) => {
+            // Strip security headers
             delete proxyRes.headers['x-frame-options'];
             delete proxyRes.headers['content-security-policy'];
             delete proxyRes.headers['frame-options'];
 
-            const siteId = req.params.id || req.cookies.portal_tunnel_id;
+            // Set/Refresh tunnel cookie
+            let siteId = req.params?.id || req.cookies?.portal_tunnel_id;
+            if (!siteId && req.url.startsWith('/tunnel/')) {
+                siteId = req.url.split('/')[2];
+            }
             if (siteId) {
-                res.cookie('portal_tunnel_id', siteId, { path: '/', sameSite: 'lax' });
+                res.cookie('portal_tunnel_id', siteId, { path: '/', sameSite: 'lax', maxAge: 3600000 });
             }
         }
     },
     pathRewrite: (path, req) => {
         if (path.startsWith('/tunnel/')) {
-            const id = req.params.id || path.split('/')[2];
-            return path.replace(`/tunnel/${id}`, '') || '/';
+            const parts = path.split('/');
+            const id = parts[2];
+            const rest = parts.slice(3).join('/') || '';
+            return `/${rest}`;
         }
         return path;
     }
 });
 
-// 1. Static Files
+// 1. Static Files (Vite Build)
 app.use(express.static(distPath));
 
 // 2. API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
 
-// 3. Tunnel Entrance (Sets cookie)
-app.use('/tunnel/:id', tunnelProxy);
+// 3. Tunnel Entrance (Sets cookie and proxies)
+app.use('/tunnel/:id', (req, res, next) => {
+    // Force set cookie on initial hit to ensure sub-resources work
+    res.cookie('portal_tunnel_id', req.params.id, { path: '/', sameSite: 'lax' });
+    next();
+}, tunnelProxy);
 
 // 4. Global Proxy Catch (For assets like /css/style.css inside the iframe)
 app.use((req, res, next) => {
     const siteId = req.cookies.portal_tunnel_id;
     const isApi = req.url.startsWith('/api');
 
-    // If it's not an API call and we have a tunnel session, try proxying
+    // If it's a sub-resource and we are in a tunnel context
     if (siteId && !isApi) {
-        // Check if file exists in dist (avoid hijacking portal assets)
+        // Check if it's a portal asset first
         const possibleLocalFile = path.join(distPath, req.path);
         if (!fs.existsSync(possibleLocalFile)) {
+            // It's likely a proxied asset
             return tunnelProxy(req, res, next);
         }
     }
@@ -116,12 +153,17 @@ app.use((req, res, next) => {
 
 // 5. Catch-all SPA Fallback
 app.use((req, res) => {
+    // If it's a tunnel-prefixed request that reached here, something is wrong
+    if (req.url.startsWith('/tunnel/')) {
+        return res.status(404).send('Proxy rendering failed. Please refresh.');
+    }
+
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
         res.sendFile(indexPath);
     } else {
-        res.status(404).send('Portal build not found.');
+        res.status(404).send('Portal build not found. Running in dev-only?');
     }
 });
 

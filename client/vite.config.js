@@ -8,7 +8,8 @@ export default defineConfig({
         port: 5174,
         proxy: {
             '/api': 'http://127.0.0.1:5173',
-            '/screenshots': 'http://127.0.0.1:5173'
+            '/screenshots': 'http://127.0.0.1:5173',
+            '/tunnel': 'http://127.0.0.1:5173'
         }
     }
 })
