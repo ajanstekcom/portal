@@ -8,11 +8,7 @@ export default defineConfig({
         port: 5174,
         proxy: {
             '/api': 'http://127.0.0.1:5173',
-            '/screenshots': 'http://127.0.0.1:5173',
-            '/socket.io': {
-                target: 'http://127.0.0.1:5173',
-                ws: true
-            }
+            '/screenshots': 'http://127.0.0.1:5173'
         }
     }
 })
