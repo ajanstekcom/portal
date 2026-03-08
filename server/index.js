@@ -35,12 +35,18 @@ app.use((req, res, next) => {
     express.json({ limit: '10mb' })(req, res, next);
 });
 
-// Tunnel Proxy Logic with HTML Rewriting & Decompression
+// Tunnel Proxy Logic with HTML Rewriting & Encoding Fix
 const tunnelProxy = createProxyMiddleware({
     target: 'http://localhost',
     router: async (req) => {
-        const parts = req.url.split('/');
-        const siteId = parts[2];
+        // [FIX] Correctly extract siteId from params or URL path
+        let siteId = req.params?.id;
+        if (!siteId) {
+            // Fallback for cases where it's called as a middleware without params
+            const parts = req.originalUrl.split('/');
+            if (parts[1] === 'tunnel') siteId = parts[2];
+        }
+
         if (!siteId) return null;
 
         let session = global.activePages.get(siteId.toString());
@@ -62,10 +68,10 @@ const tunnelProxy = createProxyMiddleware({
     autoRewrite: true,
     followRedirects: true,
     agent: proxyAgent,
-    selfHandleResponse: true, // Crucial for HTML rewriting
+    selfHandleResponse: true, // Crucial for injecting <base>
     on: {
         proxyReq: (proxyReq, req, res) => {
-            // [CRITICAL] Disable compression to allow body modification
+            // [CRITICAL] Force identity encoding to prevent compressed body corruption
             proxyReq.setHeader('accept-encoding', 'identity');
         },
         error: (err, req, res) => {
@@ -73,23 +79,23 @@ const tunnelProxy = createProxyMiddleware({
             res.status(502).send(`Tunnel Error: ${err.message}`);
         },
         proxyRes: (proxyRes, req, res) => {
-            const siteId = req.url.split('/')[2];
+            const parts = req.originalUrl.split('/');
+            const siteId = parts[2] || req.params?.id;
             const contentType = proxyRes.headers['content-type'] || '';
 
-            // Clean security headers
+            // Collect headers and strip security
             const headers = { ...proxyRes.headers };
             delete headers['x-frame-options'];
             delete headers['content-security-policy'];
             delete headers['frame-options'];
 
-            // Only rewrite HTML to inject <base> tag
             if (contentType.includes('text/html')) {
-                let body = [];
-                proxyRes.on('data', chunk => body.push(chunk));
+                let bodyChunks = [];
+                proxyRes.on('data', chunk => bodyChunks.push(chunk));
                 proxyRes.on('end', () => {
-                    body = Buffer.concat(body).toString();
+                    let body = Buffer.concat(bodyChunks).toString();
 
-                    // Inject <base> tag so all relative links use the tunnel prefix
+                    // [BEHAVIOR] Inject <base> tag so all relative assets map to /tunnel/ID/
                     const baseTag = `<base href="/tunnel/${siteId}/">`;
                     if (body.includes('<head>')) {
                         body = body.replace('<head>', `<head>${baseTag}`);
@@ -104,13 +110,14 @@ const tunnelProxy = createProxyMiddleware({
                     res.send(body);
                 });
             } else {
-                // Pipe assets directly
+                // Pipe non-HTML assets directly
                 res.set(headers);
                 proxyRes.pipe(res);
             }
         }
     },
     pathRewrite: (path, req) => {
+        // Rewrite /tunnel/ID/path -> /path
         if (path.startsWith('/tunnel/')) {
             const parts = path.split('/');
             const rest = parts.slice(3).join('/') || '';
@@ -120,17 +127,17 @@ const tunnelProxy = createProxyMiddleware({
     }
 });
 
-// 1. Static Files
+// [1] Static Files (Portal)
 app.use(express.static(distPath));
 
-// 2. API Routes
+// [2] API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
 
-// 3. Tunnel Route (The ONLY place proxying happens)
+// [3] Tunnel Route (The ONLY proxy entry)
 app.use('/tunnel/:id', tunnelProxy);
 
-// 4. Catch-all SPA
+// [4] Catch-all SPA
 app.use((req, res) => {
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
