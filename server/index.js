@@ -25,11 +25,19 @@ let dbInitialized = false;
 const proxyUrl = process.env.PROXY_URL || 'http://user-ajanstek_oYp4b-country-US:PgF8Xkmle=STXap5@dc.oxylabs.io:8000';
 const proxyAgent = new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
 
-// Middleware Setup
+// Middleware
 app.use(cors());
 app.use(cookieParser());
 
-// Robust express.json (SKIP for tunnel/proxy paths)
+// Global Request Logger
+app.use((req, res, next) => {
+    if (!req.url.includes('socket.io')) {
+        console.log(`[REQUEST] ${req.method} ${req.url}`);
+    }
+    next();
+});
+
+// Robust express.json (skip for tunnel/proxy)
 app.use((req, res, next) => {
     if (req.url.startsWith('/tunnel/')) return next();
     express.json({ limit: '10mb' })(req, res, next);
@@ -38,15 +46,17 @@ app.use((req, res, next) => {
 // Helper to extract Site ID robustly
 const getSiteId = (req) => {
     if (req.params?.id) return req.params.id;
-    // Fallback detection from path: /tunnel/ID/...
-    const parts = (req.originalUrl || req.url).split('/');
+    const url = req.originalUrl || req.url;
+    const parts = url.split('/');
     if (parts[1] === 'tunnel' && parts[2]) return parts[2];
+    const tunnelMatch = url.match(/\/tunnel\/(\d+)/);
+    if (tunnelMatch) return tunnelMatch[1];
     return null;
 };
 
-// Tunnel Proxy Definition
+// Tunnel Proxy Logic
 const tunnelProxy = createProxyMiddleware({
-    target: 'http://localhost', // Fallback
+    target: 'http://localhost',
     router: async (req) => {
         const siteId = getSiteId(req) || req.cookies?.portal_tunnel_id;
         if (!siteId) return null;
@@ -58,12 +68,8 @@ const tunnelProxy = createProxyMiddleware({
                 if (site) {
                     session = { url: site.url };
                     global.activePages.set(siteId.toString(), session);
-                    console.log(`[BOOT-PROXY] Session restored: ${site.url}`);
                 }
-            } catch (e) {
-                console.error(`[PROXY-DB-ERR] ${e.message}`);
-                return null;
-            }
+            } catch (e) { return null; }
         }
 
         if (!session) return null;
@@ -72,24 +78,24 @@ const tunnelProxy = createProxyMiddleware({
     changeOrigin: true,
     secure: false,
     autoRewrite: true,
-    followRedirects: true,
+    followRedirects: false,
     agent: proxyAgent,
-    selfHandleResponse: true, // For HTML base tag injection
+    selfHandleResponse: true,
+    headers: {
+        'accept-encoding': 'identity' // [FIX] Set statically to avoid ERR_HTTP_HEADERS_SENT
+    },
     on: {
-        proxyReq: (proxyReq, req, res) => {
-            // [CRITICAL] Force raw identity encoding to avoid compression corruption
-            proxyReq.setHeader('accept-encoding', 'identity');
-        },
         error: (err, req, res) => {
-            console.error(`[PROXY-ERR] ${req.url} -> ${err.message}`);
             if (res.headersSent) return;
             res.status(502).send(`Tunnel Error: ${err.message}`);
         },
         proxyRes: (proxyRes, req, res) => {
+            if (res.headersSent) return;
+
             const siteId = getSiteId(req) || req.cookies?.portal_tunnel_id;
             const contentType = proxyRes.headers['content-type'] || '';
 
-            // Collect headers and strip security
+            // Clean security headers
             const headers = { ...proxyRes.headers };
             delete headers['x-frame-options'];
             delete headers['content-security-policy'];
@@ -101,8 +107,8 @@ const tunnelProxy = createProxyMiddleware({
                 proxyRes.on('end', () => {
                     let body = Buffer.concat(bodyChunks).toString();
 
-                    // Inject <base> tag so all relative links use the tunnel prefix
                     if (siteId) {
+                        // 1. Inject <base> for relative paths
                         const baseTag = `<base href="/tunnel/${siteId}/">`;
                         if (body.includes('<head>')) {
                             body = body.replace('<head>', `<head>${baseTag}`);
@@ -111,19 +117,24 @@ const tunnelProxy = createProxyMiddleware({
                         } else {
                             body = baseTag + body;
                         }
+
+                        // 2. Rewrite absolute asset paths (Fixes 404s for /assets/...)
+                        body = body.replace(/(src|href)=["']\/(assets|static|media|wp-content|wp-includes|@vite|@react-refresh|node_modules|src)\//g, `$1="/tunnel/${siteId}/$2/`);
                     }
 
-                    res.set(headers);
-                    res.set('content-length', Buffer.byteLength(body));
-                    res.send(body);
+                    if (!res.headersSent) {
+                        res.set(headers);
+                        res.set('content-length', Buffer.byteLength(body));
+                        res.send(body);
+                    }
                 });
             } else {
-                // Pipe non-HTML directly
-                res.set(headers);
-                proxyRes.pipe(res);
+                if (!res.headersSent) {
+                    res.set(headers);
+                    proxyRes.pipe(res);
+                }
             }
 
-            // Set cookie for sub-resource routing
             if (siteId && !res.headersSent) {
                 res.cookie('portal_tunnel_id', siteId.toString(), { path: '/', sameSite: 'lax', maxAge: 3600000 });
             }
@@ -139,24 +150,36 @@ const tunnelProxy = createProxyMiddleware({
     }
 });
 
-// --- ROUTES ---
+// --- ROUTING ---
 
-// 1. API - Highest priority
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
-
-// 2. Explicit Tunnel Route
 app.use('/tunnel/:id', tunnelProxy);
-
-// 3. Static Files (Portal Assets)
 app.use(express.static(distPath));
 
-// 4. Catch-all SPA Fallback
+// Global Interceptor for Stray Assets
+app.use((req, res, next) => {
+    const siteId = req.cookies.portal_tunnel_id;
+    if (!siteId) return next();
+
+    const url = req.url;
+    const isAsset =
+        url.startsWith('/assets/') ||
+        url.startsWith('/static/') ||
+        url.startsWith('/media/') ||
+        url.includes('.js') ||
+        url.includes('.css');
+
+    if (isAsset) {
+        return tunnelProxy(req, res, next);
+    }
+    next();
+});
+
+// Catch-all SPA
 app.use((req, res) => {
-    // SECURITY: If it was a tunnel request that reached here, it means proxy failed.
-    // Return 404 instead of recursive Portal view.
     if (req.originalUrl.startsWith('/tunnel/')) {
-        return res.status(502).send('Proxy rendering failed or site session expired. Please refresh.');
+        return res.status(502).send('Proxy failure.');
     }
 
     const indexPath = path.join(distPath, 'index.html');
@@ -164,7 +187,7 @@ app.use((req, res) => {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
         res.sendFile(indexPath);
     } else {
-        res.status(404).send('Portal build not found. Please build the client.');
+        res.status(404).send('Portal build not found.');
     }
 });
 
