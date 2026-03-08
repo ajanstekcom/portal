@@ -33,14 +33,14 @@ app.use((req, res, next) => {
     express.json({ limit: '10mb' })(req, res, next);
 });
 
-// Tunnel Proxy Logic with HTML Rewriting
+// Tunnel Proxy Logic with HTML Rewriting & Encoding Fix
 const tunnelProxy = createProxyMiddleware({
     target: 'http://localhost',
     router: async (req) => {
         let siteId = req.params?.id;
         if (!siteId) {
             const parts = req.url.split('/');
-            siteId = parts[2]; // /tunnel/ID/...
+            siteId = parts[2];
         }
         if (!siteId) return null;
 
@@ -63,30 +63,32 @@ const tunnelProxy = createProxyMiddleware({
     autoRewrite: true,
     followRedirects: true,
     agent: proxyAgent,
-    selfHandleResponse: true, // Handle HTML to inject <base> tag
+    selfHandleResponse: true,
     on: {
+        proxyReq: (proxyReq, req, res) => {
+            // [CRITICAL] Disable target compression to allow HTML modification without "White Screen" or garbage text
+            proxyReq.setHeader('accept-encoding', 'identity');
+        },
         error: (err, req, res) => {
             if (res.headersSent) return;
             res.status(502).send(`Tunnel Error: ${err.message}`);
         },
         proxyRes: (proxyRes, req, res) => {
             const siteId = req.params?.id || req.url.split('/')[2];
+            const contentType = proxyRes.headers['content-type'] || '';
 
-            // Collect headers
             const headers = { ...proxyRes.headers };
             delete headers['x-frame-options'];
             delete headers['content-security-policy'];
             delete headers['frame-options'];
 
-            // Only rewrite HTML
-            const contentType = headers['content-type'] || '';
             if (contentType.includes('text/html')) {
                 let body = [];
                 proxyRes.on('data', chunk => body.push(chunk));
                 proxyRes.on('end', () => {
                     body = Buffer.concat(body).toString();
 
-                    // Inject <base> tag to fix relative assets
+                    // Inject <base> tag so browser looks for relative files in /tunnel/ID/
                     const baseTag = `<base href="/tunnel/${siteId}/">`;
                     if (body.includes('<head>')) {
                         body = body.replace('<head>', `<head>${baseTag}`);
@@ -97,10 +99,11 @@ const tunnelProxy = createProxyMiddleware({
                     }
 
                     res.set(headers);
+                    // Update content-length since we added a tag
+                    res.set('content-length', Buffer.byteLength(body));
                     res.send(body);
                 });
             } else {
-                // Pipe other assets directly
                 res.set(headers);
                 proxyRes.pipe(res);
             }
@@ -131,7 +134,7 @@ app.use('/tunnel/:id', tunnelProxy);
 app.use((req, res) => {
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
-        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
         res.sendFile(indexPath);
     } else {
         res.status(404).send('Portal build not found.');
