@@ -25,8 +25,16 @@ let dbInitialized = false;
 const proxyUrl = process.env.PROXY_URL || 'http://user-ajanstek_oYp4b-country-US:PgF8Xkmle=STXap5@dc.oxylabs.io:8000';
 const proxyAgent = new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false });
 
-// 0. Static Files (Kritik: En üstte)
-app.use(express.static(distPath));
+// Middleware
+app.use(cors());
+app.use(cookieParser());
+
+// Robust express.json (skip for tunnel/proxy)
+app.use((req, res, next) => {
+    const isTunnel = req.url.startsWith('/tunnel/') || req.cookies.portal_tunnel_id;
+    if (isTunnel && !req.url.startsWith('/api')) return next();
+    express.json({ limit: '10mb' })(req, res, next);
+});
 
 // Tunnel Proxy Logic
 const tunnelProxy = createProxyMiddleware({
@@ -37,7 +45,6 @@ const tunnelProxy = createProxyMiddleware({
 
         let session = global.activePages.get(siteId.toString());
 
-        // If not in cache, fallback to DB
         if (!session && dbInitialized) {
             try {
                 const site = await db('sites').where({ id: siteId }).first();
@@ -62,7 +69,6 @@ const tunnelProxy = createProxyMiddleware({
             res.status(502).send(`Tunnel Error: ${err.message}`);
         },
         proxyRes: (proxyRes, req, res) => {
-            // Strip security headers to allow framing
             delete proxyRes.headers['x-frame-options'];
             delete proxyRes.headers['content-security-policy'];
             delete proxyRes.headers['frame-options'];
@@ -82,29 +88,40 @@ const tunnelProxy = createProxyMiddleware({
     }
 });
 
-// Middleware
-app.use(cors());
-app.use(cookieParser());
-app.use((req, res, next) => {
-    if (req.url.startsWith('/tunnel/')) return next();
-    express.json({ limit: '10mb' })(req, res, next);
-});
+// 1. Static Files
+app.use(express.static(distPath));
 
-// Routes
+// 2. API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/sites', siteRoutes);
 
-// Tunnel Route
+// 3. Tunnel Entrance (Sets cookie)
 app.use('/tunnel/:id', tunnelProxy);
 
-// Catch-all SPA
+// 4. Global Proxy Catch (For assets like /css/style.css inside the iframe)
+app.use((req, res, next) => {
+    const siteId = req.cookies.portal_tunnel_id;
+    const isApi = req.url.startsWith('/api');
+
+    // If it's not an API call and we have a tunnel session, try proxying
+    if (siteId && !isApi) {
+        // Check if file exists in dist (avoid hijacking portal assets)
+        const possibleLocalFile = path.join(distPath, req.path);
+        if (!fs.existsSync(possibleLocalFile)) {
+            return tunnelProxy(req, res, next);
+        }
+    }
+    next();
+});
+
+// 5. Catch-all SPA Fallback
 app.use((req, res) => {
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
         res.sendFile(indexPath);
     } else {
-        res.status(404).send('Portal build not found. Please build the client.');
+        res.status(404).send('Portal build not found.');
     }
 });
 
